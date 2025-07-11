@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BiliBili 视频解析脚本(增强型)
 // @namespace    https://bbs.tampermonkey.net.cn/
-// @version      2.5
+// @version      2.6
 // @description  只因你实在是太美 Baby!
 // @author       laomo
 // @match        https://www.bilibili.com/video*
@@ -21,6 +21,8 @@
 // @updateURL    https://raw.githubusercontent.com/gujimy/BiliBili-JX/main/bilijx.user.js
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @require      https://lf26-cdn-tos.bytecdntp.com/cdn/expire-1-M/jquery/3.2.1/jquery.min.js
 // ==/UserScript==
 
@@ -209,7 +211,368 @@
     const TYPE_VIDEO = 'video';
     const TYPE_LIVE = 'live';
     const DEBOUNCE_DELAY = 300; // 防抖延迟时间
-  
+    
+    // 存储上一次的URL，用于检测URL变化
+    let lastUrl = window.location.href;
+    
+    // 监听URL变化的函数
+    function setupUrlChangeListener() {
+        // 使用定时器定期检查URL变化
+        setInterval(() => {
+            const currentUrl = window.location.href;
+            if (currentUrl !== lastUrl) {
+                console.log('URL已变化:', currentUrl);
+                lastUrl = currentUrl;
+                
+                // 检测页面类型
+                const isCurrentLivePage = currentUrl.includes('live.bilibili.com');
+                const isCurrentVideoPage = !isCurrentLivePage && 
+                                  (currentUrl.includes('/video/') || 
+                                   currentUrl.includes('bvid='));
+                
+                // 重新添加解析按钮
+                removeOldButtons();
+                
+                // 根据新的页面类型创建相应的解析按钮
+                if (isCurrentVideoPage) {
+                    console.log('URL变化后重新创建视频解析按钮');
+                    createAnalysisButton('videoAnalysis1', true, false);
+                    createAnalysisButton('videoAnalysis2', false, false);
+                } else if (isCurrentLivePage) {
+                    console.log('URL变化后重新创建直播解析按钮');
+                    createAnalysisButton('liveAnalysis1', true, true);
+                    createAnalysisButton('liveAnalysis2', false, true);
+                }
+                
+                // 更新封面解析按钮
+                setTimeout(addCoverAnalysisButtons, 500);
+            }
+        }, 1000); // 每秒检查一次URL变化
+    }
+    
+    // ------------------------------ CDN锁定功能 ------------------------------
+    // CDN相关常量
+    const DEFAULT_CDN = '使用默认CDN';
+    const CDN_STORAGE_KEY = 'bilijx_cdn_node';
+    const REGION_STORAGE_KEY = 'bilijx_region';
+    const CDN_API_URL = 'https://kanda-akihito-kun.github.io/ccb/api';
+    
+    // 初始CDN列表 (仅作为备用)
+    const initCdnList = [
+        'upos-sz-mirrorali.bilivideo.com',
+        'upos-sz-mirroraliov.bilivideo.com',
+        'upos-sz-mirroralib.bilivideo.com',
+        'upos-sz-estgcos.bilivideo.com',
+
+    ];
+    
+    // 地区列表和CDN列表 (会被动态更新)
+    let regionList = ['默认'];
+    let cdnList = [DEFAULT_CDN, ...initCdnList];
+    
+    // 获取当前选择的CDN节点
+    function getCurrentCdn() {
+        return GM_getValue(CDN_STORAGE_KEY, DEFAULT_CDN);
+    }
+    
+    // 获取当前选择的地区
+    function getCurrentRegion() {
+        return GM_getValue(REGION_STORAGE_KEY, regionList[0]);
+    }
+    
+    // 判断是否启用了CDN锁定
+    function isCdnLockEnabled() {
+        return getCurrentCdn() !== DEFAULT_CDN;
+    }
+    
+    // 替换视频URL中的CDN域名
+    function replaceCdnInUrl(url) {
+        if (!isCdnLockEnabled()) return url;
+        
+        const currentCdn = getCurrentCdn();
+        // 替换URL中的CDN域名部分
+        return url.replace(
+            /https:\/\/[^\/]+\//,
+            'https://' + currentCdn + '/'
+        );
+    }
+    
+    // 获取地区列表
+    async function getRegionList() {
+        try {
+            const response = await fetch(`${CDN_API_URL}/region.json`);
+            if (!response.ok) {
+                console.error('获取地区列表失败:', response.statusText);
+                return;
+            }
+            
+            const data = await response.json();
+            regionList = ['默认', ...data];
+            console.log('已更新地区列表:', regionList);
+        } catch (error) {
+            console.error('获取地区列表失败:', error);
+        }
+    }
+    
+    // 根据地区获取CDN列表
+    async function getCdnListByRegion(region) {
+        try {
+            if (region === '默认' || region === '-') {
+                cdnList = [DEFAULT_CDN, ...initCdnList];
+                return;
+            }
+            
+            const response = await fetch(`${CDN_API_URL}/cdn.json`);
+            if (!response.ok) {
+                console.error('获取CDN列表失败:', response.statusText);
+                return;
+            }
+            
+            const data = await response.json();
+            
+            // 从完整的CDN数据中获取指定地区的数据
+            const regionData = data[region] || [];
+            cdnList = [DEFAULT_CDN, ...regionData];
+            
+            // 更新设置面板中的CDN选择器
+            updateCdnSelector();
+            
+            console.log(`已更新 ${region} 地区的CDN列表:`, cdnList);
+        } catch (error) {
+            console.error('获取CDN列表失败:', error);
+        }
+    }
+    
+    // 更新设置面板中的CDN选择器
+    function updateCdnSelector() {
+        const cdnSelect = document.getElementById('bilijx-cdn-select');
+        if (cdnSelect) {
+            cdnSelect.innerHTML = cdnList.map(cdn => 
+                `<option value="${cdn}"${cdn === getCurrentCdn() ? ' selected' : ''}>${cdn}</option>`
+            ).join('');
+        }
+    }
+    
+    // 创建设置面板
+    async function createSettingsPanel() {
+        // 如果已经存在设置面板，则返回
+        if (document.getElementById('bilijx-settings-panel')) return;
+        
+        // 先获取最新的地区和CDN列表
+        await getRegionList();
+        await getCdnListByRegion(getCurrentRegion());
+        
+        // 创建设置面板
+        const settingsPanel = document.createElement('div');
+        settingsPanel.id = 'bilijx-settings-panel';
+        settingsPanel.style.display = 'none';
+        
+        // 设置面板样式
+        GM_addStyle(`
+            #bilijx-settings-panel {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: 400px;
+                background-color: #fff;
+                border-radius: 8px;
+                box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+                z-index: 10000;
+                padding: 20px;
+                font-family: "Microsoft YaHei", sans-serif;
+            }
+            
+            #bilijx-settings-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 20px;
+                padding-bottom: 10px;
+                border-bottom: 1px solid #eee;
+            }
+            
+            #bilijx-settings-header h2 {
+                margin: 0;
+                color: #FB7299;
+                font-size: 18px;
+            }
+            
+            #bilijx-settings-close {
+                cursor: pointer;
+                font-size: 20px;
+                color: #999;
+            }
+            
+            #bilijx-settings-close:hover {
+                color: #FB7299;
+            }
+            
+            .bilijx-settings-group {
+                margin-bottom: 15px;
+            }
+            
+            .bilijx-settings-group h3 {
+                margin: 0 0 10px 0;
+                font-size: 16px;
+                color: #333;
+            }
+            
+            .bilijx-settings-group select {
+                width: 100%;
+                padding: 8px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background-color: #f9f9f9;
+                font-size: 14px;
+            }
+            
+            .bilijx-settings-footer {
+                display: flex;
+                justify-content: flex-end;
+                margin-top: 20px;
+            }
+            
+            .bilijx-settings-footer button {
+                padding: 8px 15px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+                margin-left: 10px;
+            }
+            
+            #bilijx-settings-save {
+                background-color: #FB7299;
+                color: white;
+            }
+            
+            #bilijx-settings-save:hover {
+                background-color: #fc8bab;
+            }
+            
+            #bilijx-settings-cancel {
+                background-color: #f0f0f0;
+                color: #666;
+            }
+            
+            #bilijx-settings-cancel:hover {
+                background-color: #e0e0e0;
+            }
+            
+            #bilijx-settings-button {
+                position: fixed;
+                bottom: 20px;
+                left: 20px;
+                width: 45px;
+                height: 45px;
+                background-color: rgba(251, 114, 153, 0.8);
+                color: white;
+                border: none;
+                border-radius: 50%;
+                font-size: 20px;
+                cursor: pointer;
+                z-index: 9999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+                transition: all 0.3s ease;
+            }
+            
+            #bilijx-settings-button:hover {
+                background-color: rgba(251, 114, 153, 1);
+                transform: scale(1.1);
+            }
+        `);
+        
+        // 设置面板内容
+        settingsPanel.innerHTML = `
+            <div id="bilijx-settings-header">
+                <h2>B站解析脚本设置</h2>
+                <span id="bilijx-settings-close">×</span>
+            </div>
+            
+            <div class="bilijx-settings-group">
+                <h3>地区选择</h3>
+                <select id="bilijx-region-select">
+                    ${regionList.map(region => 
+                        `<option value="${region}" ${region === getCurrentRegion() ? 'selected' : ''}>${region}</option>`
+                    ).join('')}
+                </select>
+                <p style="margin-top: 8px; font-size: 12px; color: #999;">
+                    选择您所在的地区，以获取该地区最优的CDN节点列表
+                </p>
+            </div>
+            
+            <div class="bilijx-settings-group">
+                <h3>CDN节点选择</h3>
+                <select id="bilijx-cdn-select">
+                    ${cdnList.map(cdn => 
+                        `<option value="${cdn}" ${cdn === getCurrentCdn() ? 'selected' : ''}>${cdn}</option>`
+                    ).join('')}
+                </select>
+                <p style="margin-top: 8px; font-size: 12px; color: #999;">
+                    选择特定CDN节点可以提高视频加载速度，如遇视频加载慢可尝试切换。
+                </p>
+            </div>
+            
+            <div class="bilijx-settings-footer">
+                <button id="bilijx-settings-cancel">取消</button>
+                <button id="bilijx-settings-save">保存设置</button>
+            </div>
+        `;
+        
+        // 添加设置面板到页面
+        document.body.appendChild(settingsPanel);
+        
+        // 添加设置按钮
+        const settingsButton = document.createElement('button');
+        settingsButton.id = 'bilijx-settings-button';
+        settingsButton.innerHTML = '⚙️';
+        settingsButton.title = 'B站解析脚本设置';
+        document.body.appendChild(settingsButton);
+        
+        // 设置按钮点击事件
+        settingsButton.addEventListener('click', function() {
+            document.getElementById('bilijx-settings-panel').style.display = 'block';
+        });
+        
+        // 关闭按钮点击事件
+        document.getElementById('bilijx-settings-close').addEventListener('click', function() {
+            document.getElementById('bilijx-settings-panel').style.display = 'none';
+        });
+        
+        // 取消按钮点击事件
+        document.getElementById('bilijx-settings-cancel').addEventListener('click', function() {
+            document.getElementById('bilijx-settings-panel').style.display = 'none';
+        });
+        
+        // 地区选择变化事件
+        document.getElementById('bilijx-region-select').addEventListener('change', async function(e) {
+            const selectedRegion = e.target.value;
+            // 根据选择的地区更新CDN列表
+            await getCdnListByRegion(selectedRegion);
+        });
+        
+        // 保存按钮点击事件
+        document.getElementById('bilijx-settings-save').addEventListener('click', function() {
+            // 获取选择的值
+            const selectedRegion = document.getElementById('bilijx-region-select').value;
+            const selectedCdn = document.getElementById('bilijx-cdn-select').value;
+            
+            // 保存设置
+            GM_setValue(REGION_STORAGE_KEY, selectedRegion);
+            GM_setValue(CDN_STORAGE_KEY, selectedCdn);
+            
+            // 显示保存成功提示
+            showNotification('设置已保存', '新的CDN设置将在下次解析时生效', false);
+            
+            // 关闭设置面板
+            document.getElementById('bilijx-settings-panel').style.display = 'none';
+        });
+    }
+    
     // 添加提示框的样式
     GM_addStyle(`
         :root {
@@ -738,8 +1101,29 @@
     
     // 通用视频解析函数
     function getVideoUrl(bvid, p = 1, customCallback = null) {
-        if (!bvid) return;
+        if (!bvid) {
+            showNotification('解析失败', '未提供有效的视频ID', true);
+            return;
+        }
         
+        // 确保bvid格式正确
+        if (typeof bvid === 'object' && bvid[0]) {
+            bvid = bvid[0];
+        }
+        
+        // 如果bvid不是以BV开头，可能是完整URL或其他格式
+        if (typeof bvid === 'string' && !bvid.startsWith('BV')) {
+            const match = bvid.match(/BV\w+/);
+            if (match) {
+                bvid = match[0];
+            } else {
+                showNotification('解析失败', '无效的视频ID格式', true);
+                return;
+            }
+        }
+        
+        console.log('开始解析视频:', bvid, '第', p, '个分P');
+
         // 获取cid
         var httpRequest = new XMLHttpRequest();
         httpRequest.open('GET', 'https://api.bilibili.com/x/player/pagelist?bvid=' + bvid, true);
@@ -747,7 +1131,16 @@
         httpRequest.onreadystatechange = function () {
             if (httpRequest.readyState == 4 && httpRequest.status == 200) {
                 var json = JSON.parse(httpRequest.responseText);
-                var cid = json.data[p - 1].cid;
+                
+                if (!json.data || json.data.length === 0) {
+                    console.error('获取CID失败: 没有视频数据');
+                    showNotification('解析失败', '无法获取视频信息，可能是视频不存在或已被删除', true);
+                    return;
+                }
+                
+                // 确保p是有效的索引
+                const pIndex = Math.max(0, Math.min(p - 1, json.data.length - 1));
+                var cid = json.data[pIndex].cid;
                 console.log('获取到CID:', cid);
         
                 // 获取视频链接
@@ -758,7 +1151,23 @@
                 httpRequest1.onreadystatechange = function () {
                     if (httpRequest1.readyState == 4 && httpRequest1.status == 200) {
                         var json = JSON.parse(httpRequest1.responseText);
-                        const videoUrl = json.data.durl[0].url;
+                        
+                        if (!json.data || !json.data.durl || json.data.durl.length === 0) {
+                            console.error('获取视频链接失败:', json);
+                            showNotification('解析失败', '无法获取视频链接，可能需要登录或该视频有访问限制', true);
+                            return;
+                        }
+                        
+                        let videoUrl = json.data.durl[0].url;
+                        
+                        // 应用CDN锁定功能
+                        if (isCdnLockEnabled()) {
+                            const originalUrl = videoUrl;
+                            videoUrl = replaceCdnInUrl(videoUrl);
+                            console.log('CDN已锁定，原始URL:', originalUrl);
+                            console.log('替换后URL:', videoUrl);
+                        }
+                        
                         navigator.clipboard.writeText(videoUrl).catch(e => console.error(e));
                         console.log('获取到视频链接:', videoUrl);
             
@@ -767,7 +1176,11 @@
                             customCallback(videoUrl);
                         } else {
                             // 默认显示成功提示
-                            showNotification('视频解析成功', '链接已复制到剪贴板', false, TYPE_VIDEO);
+                            let message = '链接已复制到剪贴板';
+                            if (isCdnLockEnabled()) {
+                                message += ' (已锁定CDN: ' + getCurrentCdn() + ')';
+                            }
+                            showNotification('视频解析成功', message, false, TYPE_VIDEO);
                         }
                     } else if (httpRequest1.readyState == 4) {
                         console.error('获取视频链接失败');
@@ -792,25 +1205,84 @@
     // 视频页面的解析按钮点击事件
     function clickVideoAnalysis() {
       var url = window.location.href;
+      console.log('当前URL:', url);
+      
+      // 尝试从URL中提取BV号
       var BV = /(?=BV).*?(?=\?|\/)/;
-      var P = /(?<=p=).*?(?=&vd)/;
+      var P = /(?<=p=).*?(?=&|$)/; // 修改正则以匹配更多情况
       var BV1 = url.match(BV);
       var P1 = url.match(P);
   
       if (BV1 == null) {
-        BV1 = url.match(/(?<=bvid=).*?(?=&)/);
+        // 尝试其他格式的BV号提取
+        BV1 = url.match(/(?<=bvid=).*?(?=&|$)/);
+        
+        // 如果仍然找不到，尝试从页面元素中获取
+        if (BV1 == null) {
+            // 尝试从视频播放器元素获取
+            const videoElement = document.querySelector('.bilibili-player-video');
+            if (videoElement) {
+                const bvidAttr = videoElement.getAttribute('data-bvid');
+                if (bvidAttr) {
+                    BV1 = bvidAttr;
+                }
+            }
+            
+            // 尝试从页面元数据中获取
+            if (BV1 == null) {
+                const metaElement = document.querySelector('meta[itemprop="url"]');
+                if (metaElement) {
+                    const content = metaElement.getAttribute('content');
+                    if (content) {
+                        const match = content.match(/(?=BV).*?(?=\?|\/|$)/);
+                        if (match) {
+                            BV1 = match;
+                        }
+                    }
+                }
+            }
+            
+            // 尝试从页面其他元素获取
+            if (BV1 == null) {
+                // 从分享按钮获取
+                const shareBtn = document.querySelector('.share-info');
+                if (shareBtn) {
+                    const shareUrl = shareBtn.getAttribute('data-link') || '';
+                    const match = shareUrl.match(/(?=BV).*?(?=\?|\/|$)/);
+                    if (match) {
+                        BV1 = match;
+                    }
+                }
+            }
+        }
       }
+      
+      // 如果仍然找不到BV号，显示错误
+      if (BV1 == null) {
+        console.error('无法获取视频BV号');
+        showNotification('解析失败', '无法获取当前视频的BV号，请刷新页面后重试', true);
+        return;
+      }
+      
+      // 确保BV1是字符串而不是数组
+      if (Array.isArray(BV1)) {
+        BV1 = BV1[0];
+      }
+      
+      console.log('获取到BV号:', BV1);
   
       if (P1 == null) {
         P1 = 1;
-        } else {
-            P1 = parseInt(P1[0], 10); // 确保P1是数字
-        }
+      } else {
+        P1 = parseInt(P1[0], 10); // 确保P1是数字
+      }
+      
+      console.log('获取到P号:', P1);
     
-        // 调用通用视频解析函数
-        getVideoUrl(BV1, P1, function(videoUrl) {
-            showNotification('视频解析成功', '链接已复制到剪贴板', false, TYPE_VIDEO);
-        });
+      // 调用通用视频解析函数
+      getVideoUrl(BV1, P1, function(videoUrl) {
+          showNotification('视频解析成功', '链接已复制到剪贴板', false, TYPE_VIDEO);
+      });
     }
     
     // 直播页面的解析按钮点击事件
@@ -1019,6 +1491,9 @@
     // 初始执行一次
     addCoverAnalysisButtons();
     
+    // 创建设置面板
+    createSettingsPanel();
+    
     // 使用MutationObserver监听DOM变化，为新加载的封面添加按钮
     const observer = new MutationObserver(debounce(function(mutations) {
         // 移除可能重新出现的旧按钮
@@ -1039,5 +1514,8 @@
         // 添加封面解析按钮
         addCoverAnalysisButtons();
     }, DEBOUNCE_DELAY));
+
+    // 启动URL变化监听
+    setupUrlChangeListener();
   })();
   
