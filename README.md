@@ -6,11 +6,13 @@
   </a>
 </div>
 
+**安装cdn加速**：点击 [安装脚本](https://raw.gitmirror.com/gujimy/BiliBili-JX/main/bilijx.user.js)
+
 ## 功能特点
 
 - 视频解析：一键获取B站视频的直链地址，支持多种清晰度
 - 直播解析：获取B站直播间的直播流地址，支持FLV和M3U8格式
-- 解析按钮：在视频页面右下角和左上角添加便捷解析按钮
+- 解析按钮：在视频页面右下角添加便捷解析按钮
 - 封面按钮：为视频/直播封面添加快捷解析按钮
 - 干净链接：自动清理B站URL中的跟踪参数
 - CDN锁定：根据地区智能选择最优CDN节点，提高视频加载速度
@@ -25,7 +27,7 @@
 ## 使用方法
 
 ### 视频解析
-- 在视频播放页面，点击右下角或左上角的"视频解析"按钮
+- 在视频播放页面，点击右下角"视频解析"按钮
 - 或在任意页面，鼠标悬停在视频封面上，点击出现的"解析"按钮
 - 解析成功后，视频直链会自动复制到剪贴板
 
@@ -92,5 +94,7 @@
 
 ## 致谢
 
-感谢所有为本脚本提供反馈和建议的用户。
-特别感谢 [CCB](https://github.com/Kanda-Akihito-kun/ccb) 项目提供的CDN节点数据。 
+- 感谢 [CCB](https://github.com/Kanda-Akihito-kun/ccb) 项目提供的CDN节点数据
+- 感谢 [SocialSisterYi/bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) 提供的B站API参考
+- 感谢 [mmyo456/BiliAnalysis](https://github.com/mmyo456/BiliAnalysis) 提供的代码参考
+- 感谢 [Bilibili 干净链接](https://greasyfork.org/zh-CN/scripts/393995-bilibili-%E5%B9%B2%E5%87%80%E9%93%BE%E6%8E%A5) 提供的清理URL功能参考 
