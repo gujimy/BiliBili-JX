@@ -13,10 +13,8 @@
 - 视频解析：一键获取B站视频的直链地址，支持多种清晰度
 - 直播解析：获取B站直播间的直播流地址，支持FLV和M3U8格式
 - 解析按钮：在视频页面右下角添加便捷解析按钮
-- 封面按钮：为视频/直播封面添加快捷解析按钮
 - 干净链接：自动清理B站URL中的跟踪参数
-- CDN锁定：根据地区智能选择最优CDN节点，提高视频加载速度
-- 设置面板：提供友好的设置界面，自定义脚本行为
+- CDN锁定：根据地区选择最优CDN节点，提高视频加载速度
 
 ## 安装方法
 
@@ -43,21 +41,6 @@
 - 点击"保存设置"按钮应用更改
 - 下次解析视频时将使用您选择的CDN节点
 
-## 兼容页面
-
-- 视频播放页：`https://www.bilibili.com/video/*`
-- 直播页面：`https://live.bilibili.com/*`
-- 首页：`https://www.bilibili.com/`
-- 热门页：`https://www.bilibili.com/v/popular*`
-- 搜索结果页：`https://search.bilibili.com/*`
-- 用户空间页：`https://space.bilibili.com/*`
-- 排行榜页：`https://www.bilibili.com/v/*/ranked*`
-- 频道页：`https://www.bilibili.com/channel/*`
-- 专栏首页：`https://www.bilibili.com/read/home*`
-- 动态页：`https://t.bilibili.com/*`
-- 历史记录页：`https://www.bilibili.com/history*`
-- 番剧页面：`https://www.bilibili.com/bangumi/*`
-
 ## 技术特性
 
 - 使用MutationObserver监听DOM变化，动态添加解析按钮
@@ -66,20 +49,6 @@
 - 干净链接功能，移除URL中的跟踪参数
 - 使用GM_setValue/GM_getValue存储用户设置
 - 根据地区动态获取最优CDN节点列表
-
-## 更新日志
-
-- v2.6: 优化CDN锁定功能，支持根据地区动态获取最优CDN节点
-- v2.5: 优化解析提示效果，减少通知显示时间
-- v2.4: 添加干净链接功能，清理URL跟踪参数
-- v2.3: 代码优化，提高性能和可维护性
-- v2.2: 修复标题区域显示解析按钮的问题
-- v2.1: 优化直播解析，优先使用m3u8格式
-- v2.0: 增加直播解析功能
-- v1.9: 扩展封面解析按钮覆盖范围
-- v1.8: 添加鼠标悬停显示解析按钮
-- v1.7: 增加封面解析按钮
-- v1.0: 首次发布，基本视频解析功能
 
 ## 注意事项
 

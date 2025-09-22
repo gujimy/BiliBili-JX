@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BiliBili 视频解析脚本(增强型)
 // @namespace    https://bbs.tampermonkey.net.cn/
-// @version      2.6
+// @version      2.5.2
 // @description  只因你实在是太美 Baby!
 // @author       laomo
 // @match        https://www.bilibili.com/video*
@@ -73,9 +73,6 @@
             "spmid",
         ]);
         
-        /** 节点监听暂存 */
-        const nodelist = [];
-        
         /**
          * 清理url
          * @param str 原url
@@ -85,25 +82,23 @@
             if (/.*:\/\/.*.bilibili.com\/.*/.test(str) && !str.includes('passport.bilibili.com')) {
                 const url = isURL(str);
                 if (url) {
-                    paramsSet.forEach(d => {
-                        url.searchParams.delete(d);
-                    });
+                    paramsSet.forEach(d => url.searchParams.delete(d));
                     return url.toJSON();
                 }
             }
             return str;
         }
-        
+
         /** 地址备份 */
         let locationBackup;
-        
+
         /** 处理地址栏 */
         function cleanLocation() {
             const { href } = location;
             if (href === locationBackup) return;
             replaceUrl(locationBackup = clean(href));
         }
-        
+
         /** 处理href属性 */
         function anchor(list) {
             list.forEach(d => {
@@ -112,71 +107,55 @@
                 d.href = clean(d.href);
             });
         }
-        
+
         /** 检查a标签 */
-        function click(e) { // 代码copy自B站spm.js
-            var f = e.target;
-            for (; f && "A" !== f.tagName;) {
-                f = f.parentNode
+        function click(e) {
+            let f = e.target;
+            while (f && f.tagName !== "A") {
+                f = f.parentNode;
             }
-            if ("A" !== (null == f ? void 0 : f.tagName)) {
-                return
+            if (f && f.tagName === "A") {
+                anchor([f]);
             }
-            anchor([f]);
         }
-        
-        /**
-         * 修改当前URL而不触发重定向
-         * **无法跨域操作！**
-         * @param url 新URL
-         */
+
+        /** 修改当前URL而不触发重定向 */
         function replaceUrl(url) {
             window.history.replaceState(window.history.state, "", url);
         }
-        
-        cleanLocation(); // 及时处理地址栏
-        
-        // 处理注入的节点
-        let timer = 0;
-        observerAddedNodes((node) => {
-            clearTimeout(timer);
-            timer = setTimeout(() => {
-                cleanLocation();
-                anchor(document.querySelectorAll("a"));
-            }, 100);
+
+        cleanLocation(); // 首次加载时及时处理地址栏
+
+        // 使用 MutationObserver 优化动态加载内容的 URL 清理 (性能优化)
+        const observer = new MutationObserver(mutations => {
+            // 地址栏的清理需要被防抖，以应对频繁的 history 操作
+            const debouncedCleanLocation = debounce(cleanLocation, 150);
+            debouncedCleanLocation();
+
+            mutations.forEach(mutation => {
+                mutation.addedNodes.forEach(node => {
+                    if (node.nodeType !== 1) return; // 只处理元素节点
+
+                    const linksToClean = [];
+                    // 检查节点本身是否是 <a> 标签
+                    if (node.matches('a')) {
+                        linksToClean.push(node);
+                    }
+                    // 查找节点内部所有的 <a> 标签
+                    linksToClean.push(...node.querySelectorAll('a'));
+
+                    if (linksToClean.length > 0) {
+                        anchor(linksToClean);
+                    }
+                });
+            });
         });
-        
-        // 处理点击事件
-        window.addEventListener("click", click, !1);
-        
-        // 处理右键菜单
-        window.addEventListener("contextmenu", click, !1);
-        
-        // 页面载入完成
-        document.addEventListener("load", () => anchor(document.querySelectorAll("a")), !1);
-        
-        /**
-         * 注册节点添加监听
-         * **监听节点变动开销极大，如非必要请改用其他方法并且用后立即销毁！**
-         * @param callback 添加节点后执行的回调函数
-         * @returns 注册编号
-         */
-        function observerAddedNodes(callback) {
-            try {
-                if (typeof callback === "function") nodelist.push(callback);
-                return nodelist.length - 1;
-            } catch (e) { console.error(e) }
-        }
-        
-        const observe = new MutationObserver(d => d.forEach(d => {
-            d.addedNodes[0] && nodelist.forEach(async f => {
-                try {
-                    f(d.addedNodes[0])
-                } catch (e) { console.error(e) }
-            })
-        }));
-        
-        observe.observe(document, { childList: true, subtree: true });
+
+        observer.observe(document, { childList: true, subtree: true });
+
+        // 处理点击和右键事件，确保交互生成的链接也被清理
+        window.addEventListener("click", click, true);
+        window.addEventListener("contextmenu", click, true);
         
         // 重写window.open
         window.open = ((__open__) => {
@@ -215,44 +194,66 @@
     // 存储上一次的URL，用于检测URL变化
     let lastUrl = window.location.href;
     
-    // 监听URL变化的函数
+    // 监听URL变化的函数 (已优化为事件驱动)
     function setupUrlChangeListener() {
-        // 使用定时器定期检查URL变化
-        setInterval(() => {
+        const handleUrlChange = debounce(() => {
             const currentUrl = window.location.href;
-            if (currentUrl !== lastUrl) {
-                console.log('URL已变化:', currentUrl);
-                lastUrl = currentUrl;
-                
-                // 检测页面类型
-                const isCurrentLivePage = currentUrl.includes('live.bilibili.com');
-                const isCurrentVideoPage = !isCurrentLivePage && 
-                                  (currentUrl.includes('/video/') || 
-                                   currentUrl.includes('bvid='));
-                
-                // 重新添加解析按钮
-                removeOldButtons();
-                
-                // 根据新的页面类型创建相应的解析按钮
-                if (isCurrentVideoPage) {
-                    console.log('URL变化后重新创建视频解析按钮');
-                    createAnalysisButton('videoAnalysis1', true, false);
-                    createAnalysisButton('videoAnalysis2', false, false);
-                } else if (isCurrentLivePage) {
-                    console.log('URL变化后重新创建直播解析按钮');
-                    createAnalysisButton('liveAnalysis1', true, true);
-                    createAnalysisButton('liveAnalysis2', false, true);
-                }
-                
-                // 更新封面解析按钮
-                setTimeout(addCoverAnalysisButtons, 500);
+            if (currentUrl === lastUrl) return; // URL没有实际变化
+
+            console.log('URL已变化:', currentUrl);
+            lastUrl = currentUrl;
+
+            // 检测页面类型
+            const isCurrentLivePage = currentUrl.includes('live.bilibili.com');
+            const isCurrentVideoPage = !isCurrentLivePage &&
+                                      (currentUrl.includes('/video/') ||
+                                       currentUrl.includes('bvid='));
+
+            // 重新添加解析按钮
+            removeOldButtons();
+
+            // 根据新的页面类型创建相应的解析按钮
+            if (isCurrentVideoPage) {
+                console.log('URL变化后重新创建视频解析按钮');
+                createAnalysisButton('videoAnalysis1', true, false);
+                createAnalysisButton('videoAnalysis2', false, false);
+            } else if (isCurrentLivePage) {
+                console.log('URL变化后重新创建直播解析按钮');
+                createAnalysisButton('liveAnalysis1', true, true);
+                createAnalysisButton('liveAnalysis2', false, true);
             }
-        }, 1000); // 每秒检查一次URL变化
+
+            // 延迟更新封面解析按钮，等待页面内容加载
+            setTimeout(addCoverAnalysisButtons, 500);
+        }, DEBOUNCE_DELAY); // 使用防抖避免短时间内重复执行
+
+        // 监听浏览器前进后退
+        window.addEventListener('popstate', handleUrlChange);
+
+        // 封装并重写 history 方法
+        const wrapHistoryMethod = (method) => {
+            const original = history[method];
+            history[method] = function(...args) {
+                const result = original.apply(this, args);
+                // 创建并触发一个自定义事件，以便其他可能依赖 history 变化的代码也能监听到
+                const event = new Event(method.toLowerCase());
+                event.arguments = args;
+                window.dispatchEvent(event);
+                
+                // 执行我们的URL变化处理逻辑
+                handleUrlChange();
+                return result;
+            };
+        };
+
+        // 重写 pushState 和 replaceState
+        wrapHistoryMethod('pushState');
+        wrapHistoryMethod('replaceState');
     }
     
     // ------------------------------ CDN锁定功能 ------------------------------
     // CDN相关常量
-    const DEFAULT_CDN = '使用默认CDN';
+    const DEFAULT_CDN = '使用默认随机分配CDN';
     const CDN_STORAGE_KEY = 'bilijx_cdn_node';
     const REGION_STORAGE_KEY = 'bilijx_region';
     const CDN_API_URL = 'https://kanda-akihito-kun.github.io/ccb/api';
@@ -297,49 +298,48 @@
         );
     }
     
-    // 获取地区列表
+    // 获取地区列表 (已优化)
     async function getRegionList() {
         try {
             const response = await fetch(`${CDN_API_URL}/region.json`);
             if (!response.ok) {
-                console.error('获取地区列表失败:', response.statusText);
-                return;
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
-            
             const data = await response.json();
             regionList = ['默认', ...data];
             console.log('已更新地区列表:', regionList);
         } catch (error) {
             console.error('获取地区列表失败:', error);
+            // 在出错时使用默认列表
+            regionList = ['默认'];
         }
     }
-    
-    // 根据地区获取CDN列表
+
+    // 根据地区获取CDN列表 (已优化)
     async function getCdnListByRegion(region) {
         try {
             if (region === '默认' || region === '-') {
                 cdnList = [DEFAULT_CDN, ...initCdnList];
+                updateCdnSelector(); // 切换到默认时也需要更新
                 return;
             }
-            
+
             const response = await fetch(`${CDN_API_URL}/cdn.json`);
             if (!response.ok) {
-                console.error('获取CDN列表失败:', response.statusText);
-                return;
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
-            
             const data = await response.json();
-            
-            // 从完整的CDN数据中获取指定地区的数据
+
             const regionData = data[region] || [];
             cdnList = [DEFAULT_CDN, ...regionData];
-            
-            // 更新设置面板中的CDN选择器
+
             updateCdnSelector();
-            
             console.log(`已更新 ${region} 地区的CDN列表:`, cdnList);
         } catch (error) {
-            console.error('获取CDN列表失败:', error);
+            console.error(`获取 ${region} 地区CDN列表失败:`, error);
+            // 在出错时使用默认列表
+            cdnList = [DEFAULT_CDN, ...initCdnList];
+            updateCdnSelector();
         }
     }
     
@@ -833,13 +833,13 @@
         addLiveCoverButtons();
     }
     
-    // 视频封面选择器缓存
-    const videoCoverSelectors = [
+    // 视频封面选择器缓存 (已合并为单一字符串以提高性能)
+    const videoCoverSelector = [
         // 首页、分区推荐
         '.video-card a.video-card__content',
         '.bili-video-card__wrap a.bili-video-card__image--link',
         '.bili-video-card .bili-video-card__image > a',
-        '.bili-video-card__wrap > a', 
+        '.bili-video-card__wrap > a',
         // 视频卡片
         '.video-item .bili-video-card__wrap a',
         // 搜索结果页
@@ -889,10 +889,10 @@
         '.bangumi-list .cover',
         '.season-wrap .cover',
         '.media-card .cover-container'
-    ];
-    
-    // 直播封面选择器缓存
-    const liveCoverSelectors = [
+    ].join(',');
+
+    // 直播封面选择器缓存 (已合并为单一字符串以提高性能)
+    const liveCoverSelector = [
         // 首页推荐直播
         '.live-card .live-card-wrapper',
         '.live-card .cover-ctnr',
@@ -909,13 +909,13 @@
         'a[href*="live.bilibili.com"]',
         '.live-box .cover',
         '.room-list .room-card'
-    ];
+    ].join(',');
     
     // 添加视频封面按钮
     function addVideoCoverButtons() {
-        // 使用选择器查找所有可能的视频封面
-        processElementsWithSelectors(videoCoverSelectors, processVideoElement);
-        
+        // 使用合并后的选择器查找所有可能的视频封面
+        processElementsBySelector(videoCoverSelector, processVideoElement);
+
         // 尝试查找所有a标签，但必须包含图片元素才添加按钮
         try {
             document.querySelectorAll('a').forEach(linkElement => {
@@ -950,9 +950,9 @@
     
     // 添加直播封面按钮
     function addLiveCoverButtons() {
-        // 使用选择器查找所有可能的直播封面
-        processElementsWithSelectors(liveCoverSelectors, processLiveElement);
-        
+        // 使用合并后的选择器查找所有可能的直播封面
+        processElementsBySelector(liveCoverSelector, processLiveElement);
+
         // 尝试查找所有包含直播链接的a标签
         try {
             document.querySelectorAll('a').forEach(linkElement => {
@@ -968,17 +968,13 @@
         }
     }
     
-    // 处理多个选择器的元素
-    function processElementsWithSelectors(selectors, processor) {
-        selectors.forEach(selector => {
-            try {
-                document.querySelectorAll(selector).forEach(element => {
-                    processor(element);
-                });
-            } catch (e) {
-                console.error('Error processing selector:', selector, e);
-            }
-        });
+    // 使用单一选择器字符串处理元素 (性能优化)
+    function processElementsBySelector(selector, processor) {
+        try {
+            document.querySelectorAll(selector).forEach(processor);
+        } catch (e) {
+            console.error('Error processing selector:', selector, e);
+        }
     }
     
     // 判断元素是否可能是标题元素
@@ -1099,19 +1095,17 @@
         createCoverButton(coverElement, roomId, true, analysisLive);
     }
     
-    // 通用视频解析函数
-    function getVideoUrl(bvid, p = 1, customCallback = null) {
+    // 通用视频解析函数 (已使用 async/await 重构)
+    async function getVideoUrl(bvid, p = 1, customCallback = null) {
         if (!bvid) {
             showNotification('解析失败', '未提供有效的视频ID', true);
             return;
         }
-        
+
         // 确保bvid格式正确
         if (typeof bvid === 'object' && bvid[0]) {
             bvid = bvid[0];
         }
-        
-        // 如果bvid不是以BV开头，可能是完整URL或其他格式
         if (typeof bvid === 'string' && !bvid.startsWith('BV')) {
             const match = bvid.match(/BV\w+/);
             if (match) {
@@ -1121,77 +1115,62 @@
                 return;
             }
         }
-        
+
         console.log('开始解析视频:', bvid, '第', p, '个分P');
 
-        // 获取cid
-        var httpRequest = new XMLHttpRequest();
-        httpRequest.open('GET', 'https://api.bilibili.com/x/player/pagelist?bvid=' + bvid, true);
-        httpRequest.send();
-        httpRequest.onreadystatechange = function () {
-            if (httpRequest.readyState == 4 && httpRequest.status == 200) {
-                var json = JSON.parse(httpRequest.responseText);
-                
-                if (!json.data || json.data.length === 0) {
-                    console.error('获取CID失败: 没有视频数据');
-                    showNotification('解析失败', '无法获取视频信息，可能是视频不存在或已被删除', true);
-                    return;
-                }
-                
-                // 确保p是有效的索引
-                const pIndex = Math.max(0, Math.min(p - 1, json.data.length - 1));
-                var cid = json.data[pIndex].cid;
-                console.log('获取到CID:', cid);
-        
-                // 获取视频链接
-                var httpRequest1 = new XMLHttpRequest();
-                httpRequest1.open('GET', 'https://api.bilibili.com/x/player/playurl?bvid=' + bvid + '&cid=' + cid + '&qn=116&type=&otype=json&platform=html5&high_quality=1', true);
-                httpRequest1.withCredentials = true;
-                httpRequest1.send();
-                httpRequest1.onreadystatechange = function () {
-                    if (httpRequest1.readyState == 4 && httpRequest1.status == 200) {
-                        var json = JSON.parse(httpRequest1.responseText);
-                        
-                        if (!json.data || !json.data.durl || json.data.durl.length === 0) {
-                            console.error('获取视频链接失败:', json);
-                            showNotification('解析失败', '无法获取视频链接，可能需要登录或该视频有访问限制', true);
-                            return;
-                        }
-                        
-                        let videoUrl = json.data.durl[0].url;
-                        
-                        // 应用CDN锁定功能
-                        if (isCdnLockEnabled()) {
-                            const originalUrl = videoUrl;
-                            videoUrl = replaceCdnInUrl(videoUrl);
-                            console.log('CDN已锁定，原始URL:', originalUrl);
-                            console.log('替换后URL:', videoUrl);
-                        }
-                        
-                        navigator.clipboard.writeText(videoUrl).catch(e => console.error(e));
-                        console.log('获取到视频链接:', videoUrl);
-            
-                        // 如果有自定义回调函数，则调用
-                        if (customCallback) {
-                            customCallback(videoUrl);
-                        } else {
-                            // 默认显示成功提示
-                            let message = '链接已复制到剪贴板';
-                            if (isCdnLockEnabled()) {
-                                message += ' (已锁定CDN: ' + getCurrentCdn() + ')';
-                            }
-                            showNotification('视频解析成功', message, false, TYPE_VIDEO);
-                        }
-                    } else if (httpRequest1.readyState == 4) {
-                        console.error('获取视频链接失败');
-                        showNotification('解析失败', '无法获取视频链接', true);
-                    }
-                };
-            } else if (httpRequest.readyState == 4) {
-                console.error('获取CID失败');
-                showNotification('解析失败', '无法获取视频CID', true);
+        try {
+            // 1. 获取CID
+            const pageListUrl = `https://api.bilibili.com/x/player/pagelist?bvid=${bvid}`;
+            const pageListResponse = await fetch(pageListUrl);
+            if (!pageListResponse.ok) throw new Error('获取视频信息失败');
+            const pageListData = await pageListResponse.json();
+
+            if (!pageListData.data || pageListData.data.length === 0) {
+                throw new Error('无法获取视频信息，可能是视频不存在或已被删除');
             }
-        };
+
+            const pIndex = Math.max(0, Math.min(p - 1, pageListData.data.length - 1));
+            const cid = pageListData.data[pIndex].cid;
+            console.log('获取到CID:', cid);
+
+            // 2. 获取视频链接
+            const playUrl = `https://api.bilibili.com/x/player/playurl?bvid=${bvid}&cid=${cid}&qn=116&type=&otype=json&platform=html5&high_quality=1`;
+            const playUrlResponse = await fetch(playUrl, { credentials: 'include' });
+            if (!playUrlResponse.ok) throw new Error('获取视频链接请求失败');
+            const playUrlData = await playUrlResponse.json();
+
+            if (!playUrlData.data || !playUrlData.data.durl || playUrlData.data.durl.length === 0) {
+                throw new Error('无法获取视频链接，可能需要登录或该视频有访问限制');
+            }
+
+            let videoUrl = playUrlData.data.durl[0].url;
+
+            // 3. 应用CDN锁定
+            if (isCdnLockEnabled()) {
+                const originalUrl = videoUrl;
+                videoUrl = replaceCdnInUrl(videoUrl);
+                console.log('CDN已锁定，原始URL:', originalUrl);
+                console.log('替换后URL:', videoUrl);
+            }
+
+            // 4. 复制到剪贴板并显示通知
+            await navigator.clipboard.writeText(videoUrl);
+            console.log('获取到视频链接:', videoUrl);
+
+            if (customCallback) {
+                customCallback(videoUrl);
+            } else {
+                let message = '链接已复制到剪贴板';
+                if (isCdnLockEnabled()) {
+                    message += ` (已锁定CDN: ${getCurrentCdn()})`;
+                }
+                showNotification('视频解析成功', message, false, TYPE_VIDEO);
+            }
+
+        } catch (error) {
+            console.error('视频解析过程中发生错误:', error);
+            showNotification('解析失败', error.message, true);
+        }
     }
     
     // 封面按钮点击解析视频
@@ -1202,87 +1181,66 @@
         });
     }
     
-    // 视频页面的解析按钮点击事件
-    function clickVideoAnalysis() {
-      var url = window.location.href;
-      console.log('当前URL:', url);
-      
-      // 尝试从URL中提取BV号
-      var BV = /(?=BV).*?(?=\?|\/)/;
-      var P = /(?<=p=).*?(?=&|$)/; // 修改正则以匹配更多情况
-      var BV1 = url.match(BV);
-      var P1 = url.match(P);
-  
-      if (BV1 == null) {
-        // 尝试其他格式的BV号提取
-        BV1 = url.match(/(?<=bvid=).*?(?=&|$)/);
-        
-        // 如果仍然找不到，尝试从页面元素中获取
-        if (BV1 == null) {
-            // 尝试从视频播放器元素获取
-            const videoElement = document.querySelector('.bilibili-player-video');
-            if (videoElement) {
-                const bvidAttr = videoElement.getAttribute('data-bvid');
-                if (bvidAttr) {
-                    BV1 = bvidAttr;
-                }
-            }
-            
-            // 尝试从页面元数据中获取
-            if (BV1 == null) {
-                const metaElement = document.querySelector('meta[itemprop="url"]');
-                if (metaElement) {
-                    const content = metaElement.getAttribute('content');
-                    if (content) {
-                        const match = content.match(/(?=BV).*?(?=\?|\/|$)/);
-                        if (match) {
-                            BV1 = match;
-                        }
-                    }
-                }
-            }
-            
-            // 尝试从页面其他元素获取
-            if (BV1 == null) {
-                // 从分享按钮获取
-                const shareBtn = document.querySelector('.share-info');
-                if (shareBtn) {
-                    const shareUrl = shareBtn.getAttribute('data-link') || '';
-                    const match = shareUrl.match(/(?=BV).*?(?=\?|\/|$)/);
-                    if (match) {
-                        BV1 = match;
-                    }
-                }
+    // 从当前页面获取视频BV号的健壮性函数
+    function getCurrentBvid() {
+        const url = window.location.href;
+        let match;
+
+        // 1. 从 URL 路径中提取 (e.g., /video/BV...)
+        match = url.match(/(?=BV).*?(?=\?|\/)/);
+        if (match) return match[0];
+
+        // 2. 从 URL 查询参数中提取 (e.g., ?bvid=BV...)
+        match = url.match(/(?<=bvid=).*?(?=&|$)/);
+        if (match) return match[0];
+
+        // 3. 从页面元数据中获取
+        const metaElement = document.querySelector('meta[itemprop="url"]');
+        if (metaElement) {
+            const content = metaElement.getAttribute('content');
+            if (content) {
+                match = content.match(/(?=BV).*?(?=\?|\/|$)/);
+                if (match) return match[0];
             }
         }
-      }
-      
-      // 如果仍然找不到BV号，显示错误
-      if (BV1 == null) {
-        console.error('无法获取视频BV号');
-        showNotification('解析失败', '无法获取当前视频的BV号，请刷新页面后重试', true);
-        return;
-      }
-      
-      // 确保BV1是字符串而不是数组
-      if (Array.isArray(BV1)) {
-        BV1 = BV1[0];
-      }
-      
-      console.log('获取到BV号:', BV1);
-  
-      if (P1 == null) {
-        P1 = 1;
-      } else {
-        P1 = parseInt(P1[0], 10); // 确保P1是数字
-      }
-      
-      console.log('获取到P号:', P1);
-    
-      // 调用通用视频解析函数
-      getVideoUrl(BV1, P1, function(videoUrl) {
-          showNotification('视频解析成功', '链接已复制到剪贴板', false, TYPE_VIDEO);
-      });
+
+        // 4. 从分享按钮的数据属性中获取
+        const shareBtn = document.querySelector('.share-info');
+        if (shareBtn) {
+            const shareUrl = shareBtn.getAttribute('data-link') || '';
+            match = shareUrl.match(/(?=BV).*?(?=\?|\/|$)/);
+            if (match) return match[0];
+        }
+
+        // 5. 从播放器元素的数据属性中获取 (作为备用)
+        const videoElement = document.querySelector('.bilibili-player-video');
+        if (videoElement) {
+            const bvidAttr = videoElement.getAttribute('data-bvid');
+            if (bvidAttr) return bvidAttr;
+        }
+
+        return null;
+    }
+
+    // 视频页面的解析按钮点击事件 (已重构)
+    function clickVideoAnalysis() {
+        const bvid = getCurrentBvid();
+
+        if (!bvid) {
+            console.error('无法获取视频BV号');
+            showNotification('解析失败', '无法获取当前视频的BV号，请刷新页面后重试', true);
+            return;
+        }
+
+        const url = window.location.href;
+        const pMatch = url.match(/(?<=p=).*?(?=&|$)/);
+        const p = pMatch ? parseInt(pMatch[0], 10) : 1;
+
+        console.log('获取到BV号:', bvid);
+        console.log('获取到P号:', p);
+
+        // 直接调用通用视频解析函数，它内部已包含成功提示
+        getVideoUrl(bvid, p);
     }
     
     // 直播页面的解析按钮点击事件
@@ -1314,59 +1272,80 @@
         }
     }
     
-    // 直播解析函数 - 使用新的API
-    function analysisLive(roomId) {
+    // 直播解析函数 (已使用 async/await 重构)
+    async function analysisLive(roomId) {
         if (!roomId) return;
-        
-        // 使用更现代的API获取直播流
-        var httpRequest = new XMLHttpRequest();
-        httpRequest.open('GET', 'https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id=' + roomId + '&protocol=0,1&format=0,1,2&codec=0,1&qn=10000&platform=web&ptype=8&dolby=5&panorama=1', true);
-        httpRequest.withCredentials = true;
-        httpRequest.setRequestHeader('Referer', 'https://live.bilibili.com');
-        httpRequest.setRequestHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-        httpRequest.send();
-        
-        httpRequest.onreadystatechange = function () {
-            if (httpRequest.readyState == 4 && httpRequest.status == 200) {
-                try {
-                    var json = JSON.parse(httpRequest.responseText);
-                    
-                    if (json.code !== 0) {
-                        showNotification('直播解析失败', json.message || '获取直播流失败', true);
-                        fallbackToOldAPI(roomId);
-                        return;
-                    }
-                    
-                    // 获取直播流地址
-                    const streamUrl = getLiveStreamUrl(json);
-                    
-                    if (streamUrl) {
-                        // 确定流类型
-                        let format = 'FLV';
-                        if (streamUrl.includes('.m3u8')) {
-                            format = 'M3U8';
-                        } else if (streamUrl.includes('.flv')) {
-                            format = 'FLV';
-                        }
-                        
-                        navigator.clipboard.writeText(streamUrl).catch(e => console.error(e));
-                        console.log('直播流地址 (' + format + '):', streamUrl);
-                        
-                        // 显示成功提示
-                        showNotification('直播解析成功 (' + format + ')', '链接已复制到剪贴板', false, TYPE_LIVE);
-                    } else {
-                        console.error('未找到直播流地址');
-                        fallbackToOldAPI(roomId);
-                    }
-                } catch (error) {
-                    console.error('解析直播流失败:', error);
-                    fallbackToOldAPI(roomId);
+
+        console.log('开始解析直播:', roomId);
+
+        try {
+            // 优先尝试新版API
+            const newApiUrl = `https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id=${roomId}&protocol=0,1&format=0,1,2&codec=0,1&qn=10000&platform=web&ptype=8&dolby=5&panorama=1`;
+            const response = await fetch(newApiUrl, {
+                credentials: 'include',
+                headers: {
+                    'Referer': 'https://live.bilibili.com',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
-            } else if (httpRequest.readyState == 4) {
-                console.error('请求直播流失败');
-                fallbackToOldAPI(roomId);
+            });
+
+            if (!response.ok) throw new Error('新API请求失败');
+
+            const data = await response.json();
+            if (data.code === 0) {
+                const streamUrl = getLiveStreamUrl(data);
+                if (streamUrl) {
+                    await handleLiveStreamUrl(streamUrl);
+                    return; // 解析成功，直接返回
+                }
             }
-        };
+            // 如果新API失败或未找到流，则自动尝试旧API
+            throw new Error(data.message || '新API未能获取直播流');
+
+        } catch (error) {
+            console.warn('新版API解析失败:', error.message, '正在尝试回退到旧版API...');
+            try {
+                // 回退到旧版API (M3U8)
+                const oldApiM3u8Url = `https://api.live.bilibili.com/room/v1/Room/playUrl?cid=${roomId}&qn=10000&platform=h5`;
+                const m3u8Response = await fetch(oldApiM3u8Url, { credentials: 'include' });
+                if (!m3u8Response.ok) throw new Error('旧API(M3U8)请求失败');
+                
+                const m3u8Data = await m3u8Response.json();
+                if (m3u8Data.data && m3u8Data.data.durl && m3u8Data.data.durl.length > 0) {
+                    await handleLiveStreamUrl(m3u8Data.data.durl[0].url);
+                    return;
+                }
+
+                // 回退到旧版API (FLV)
+                console.warn('旧版API(M3U8)解析失败，尝试FLV格式...');
+                const oldApiFlvUrl = `https://api.live.bilibili.com/room/v1/Room/playUrl?cid=${roomId}&qn=10000&platform=web`;
+                const flvResponse = await fetch(oldApiFlvUrl, { credentials: 'include' });
+                if (!flvResponse.ok) throw new Error('旧API(FLV)请求失败');
+
+                const flvData = await flvResponse.json();
+                if (flvData.data && flvData.data.durl && flvData.data.durl.length > 0) {
+                    await handleLiveStreamUrl(flvData.data.durl[0].url);
+                    return;
+                }
+
+                throw new Error('所有API尝试均失败');
+
+            } catch (fallbackError) {
+                console.error('直播解析最终失败:', fallbackError);
+                showNotification('直播解析失败', fallbackError.message || '无法获取直播流地址', true);
+            }
+        }
+    }
+
+    // 辅助函数：处理获取到的直播流URL
+    async function handleLiveStreamUrl(streamUrl) {
+        let format = '未知';
+        if (streamUrl.includes('.m3u8')) format = 'M3U8';
+        else if (streamUrl.includes('.flv')) format = 'FLV';
+
+        await navigator.clipboard.writeText(streamUrl);
+        console.log(`直播流地址 (${format}):`, streamUrl);
+        showNotification(`直播解析成功 (${format})`, '链接已复制到剪贴板', false, TYPE_LIVE);
     }
     
     // 从响应中提取直播流地址
@@ -1428,65 +1407,7 @@
         return null;
     }
     
-    // 如果新API失败，回退到旧API
-    function fallbackToOldAPI(roomId) {
-        console.log('尝试使用旧API获取直播流');
-        
-        // 尝试获取m3u8格式
-      var httpRequest = new XMLHttpRequest();
-        httpRequest.open('GET', 'https://api.live.bilibili.com/room/v1/Room/playUrl?cid=' + roomId + '&qn=10000&platform=h5', true);
-        httpRequest.withCredentials = true;
-      httpRequest.send();
-      httpRequest.onreadystatechange = function () {
-        if (httpRequest.readyState == 4 && httpRequest.status == 200) {
-          var json = JSON.parse(httpRequest.responseText);
-                if (json.data && json.data.durl && json.data.durl.length > 0) {
-                    // 获取最高质量的直播流
-                    const liveUrl = json.data.durl[0].url;
-                    navigator.clipboard.writeText(liveUrl).catch(e => console.error(e));
-                    console.log('直播流地址(m3u8):', liveUrl);
-                    
-                    // 显示成功提示
-                    let format = liveUrl.toLowerCase().includes('.m3u8') ? 'M3U8' : 'FLV';
-                    showNotification('直播解析成功 ('+format+')', '链接已复制到剪贴板', false, TYPE_LIVE);
-                } else {
-                    // 如果m3u8格式获取失败，尝试获取flv格式
-                    fallbackToFlvFormat(roomId);
-                }
-            } else if (httpRequest.readyState == 4) {
-                // 如果m3u8格式请求失败，尝试获取flv格式
-                fallbackToFlvFormat(roomId);
-            }
-        };
-    }
-    
-    // 备用方案：获取flv格式直播流
-    function fallbackToFlvFormat(roomId) {
-        var httpRequest = new XMLHttpRequest();
-        httpRequest.open('GET', 'https://api.live.bilibili.com/room/v1/Room/playUrl?cid=' + roomId + '&qn=10000&platform=web', true);
-        httpRequest.withCredentials = true;
-        httpRequest.send();
-        httpRequest.onreadystatechange = function () {
-            if (httpRequest.readyState == 4 && httpRequest.status == 200) {
-                var json = JSON.parse(httpRequest.responseText);
-                if (json.data && json.data.durl && json.data.durl.length > 0) {
-                    // 获取最高质量的直播流
-                    const liveUrl = json.data.durl[0].url;
-                    navigator.clipboard.writeText(liveUrl).catch(e => console.error(e));
-                    console.log('直播流地址(flv):', liveUrl);
-                    
-                    // 显示成功提示
-                    showNotification('直播解析成功 (FLV)', '链接已复制到剪贴板', false, TYPE_LIVE);
-                } else {
-                    console.error('获取直播流失败:', json);
-                    showNotification('直播解析失败', '无法获取直播流地址', true);
-                }
-            } else if (httpRequest.readyState == 4) {
-                console.error('获取直播流请求失败');
-                showNotification('直播解析失败', '请求直播流地址失败', true);
-            }
-        };
-    }
+    // 旧的回退函数已被整合到新的 analysisLive 函数中，可以安全移除
     
     // 初始执行一次
     addCoverAnalysisButtons();
