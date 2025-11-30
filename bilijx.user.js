@@ -4,182 +4,111 @@
 // @version      2.5.2
 // @description  只因你实在是太美 Baby!
 // @author       laomo
-// @match        https://www.bilibili.com/video*
-// @match        https://www.bilibili.com/*bvid*
-// @match        https://www.bilibili.com/
-// @match        https://www.bilibili.com/v/popular*
+// @match        https://www.bilibili.com/*
 // @match        https://search.bilibili.com/*
 // @match        https://space.bilibili.com/*
-// @match        https://www.bilibili.com/v/*/ranked*
-// @match        https://www.bilibili.com/channel/*
-// @match        https://www.bilibili.com/read/home*
 // @match        https://t.bilibili.com/*
-// @match        https://www.bilibili.com/history*
 // @match        https://live.bilibili.com/*
-// @match        https://www.bilibili.com/bangumi/*
 // @downloadURL  https://raw.githubusercontent.com/gujimy/BiliBili-JX/main/bilijx.user.js
 // @updateURL    https://raw.githubusercontent.com/gujimy/BiliBili-JX/main/bilijx.user.js
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_setValue
-// @require      https://lf26-cdn-tos.bytecdntp.com/cdn/expire-1-M/jquery/3.2.1/jquery.min.js
+// @connect      api.bilibili.com
+// @connect      live.bilibili.com
+// @connect      kanda-akihito-kun.github.io
 // ==/UserScript==
 
 (function () {
     'use strict';
     
     // ------------------------------ 干净链接功能 ------------------------------
-    // 清理B站URL中的垃圾参数
-    function cleanBilibiliUrls() {
-        function isURL(url, base) {
-            try {
-                if (typeof url === "string" && /^[\W\w]+\.[\W\w]+/.test(url) && !/^[a-z]+:/.test(url)) {
-                    // 处理省略协议头情况
-                    const str = url.startsWith("//") ? "" : "//";
-                    url = location.protocol + str + url;
-                }
-                return new URL(url, base);
-            } catch (e) {
-                return false;
+    function isURL(url, base) {
+        try {
+            if (typeof url === "string" && /^[\W\w]+\.[\W\w]+/.test(url) && !/^[a-z]+:/.test(url)) {
+                // 处理省略协议头情况
+                const str = url.startsWith("//") ? "" : "//";
+                url = location.protocol + str + url;
+            }
+            return new URL(url, base);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /** 垃圾参数 */
+    const paramsSet = new Set([
+        'spm_id_from', 'from_source', 'msource', 'bsource', 'seid', 'source',
+        'session_id', 'visit_id', 'sourceFrom', 'from_spmid', 'share_source',
+        'share_medium', 'share_plat', 'share_session_id', 'share_tag', 'unique_k',
+        "csource", "vd_source", "tab", "is_story_h5", "share_from", "plat_id",
+        "-Arouter", "spmid",
+    ]);
+
+    /** 清理url */
+    function clean(str) {
+        if (/.*:\/\/.*.bilibili.com\/.*/.test(str) && !str.includes('passport.bilibili.com')) {
+            const url = isURL(str);
+            if (url) {
+                paramsSet.forEach(d => url.searchParams.delete(d));
+                return url.toJSON();
             }
         }
-        
-        /** 垃圾参数 */
-        const paramsSet = new Set([
-            'spm_id_from',
-            'from_source',
-            'msource',
-            'bsource',
-            'seid',
-            'source',
-            'session_id',
-            'visit_id',
-            'sourceFrom',
-            'from_spmid',
-            'share_source',
-            'share_medium',
-            'share_plat',
-            'share_session_id',
-            'share_tag',
-            'unique_k',
-            "csource",
-            "vd_source",
-            "tab",
-            "is_story_h5",
-            "share_from",
-            "plat_id",
-            "-Arouter",
-            "spmid",
-        ]);
-        
-        /**
-         * 清理url
-         * @param str 原url
-         * @returns 新url
-         */
-        function clean(str) {
-            if (/.*:\/\/.*.bilibili.com\/.*/.test(str) && !str.includes('passport.bilibili.com')) {
-                const url = isURL(str);
-                if (url) {
-                    paramsSet.forEach(d => url.searchParams.delete(d));
-                    return url.toJSON();
-                }
-            }
-            return str;
-        }
+        return str;
+    }
 
-        /** 地址备份 */
-        let locationBackup;
+    /** 地址备份 */
+    let locationBackup;
 
-        /** 处理地址栏 */
-        function cleanLocation() {
-            const { href } = location;
-            if (href === locationBackup) return;
-            replaceUrl(locationBackup = clean(href));
-        }
+    /** 修改当前URL而不触发重定向 */
+    function replaceUrl(url) {
+        window.history.replaceState(window.history.state, "", url);
+    }
 
-        /** 处理href属性 */
-        function anchor(list) {
-            list.forEach(d => {
-                if (!d.href) return;
-                d.href.includes("bilibili.tv") && (d.href = d.href.replace("bilibili.tv", "bilibili.com")); // tv域名失效
-                d.href = clean(d.href);
-            });
-        }
+    /** 处理地址栏 */
+    function cleanLocation() {
+        const { href } = location;
+        if (href === locationBackup) return;
+        replaceUrl(locationBackup = clean(href));
+    }
 
-        /** 检查a标签 */
-        function click(e) {
-            let f = e.target;
-            while (f && f.tagName !== "A") {
-                f = f.parentNode;
-            }
-            if (f && f.tagName === "A") {
-                anchor([f]);
-            }
-        }
-
-        /** 修改当前URL而不触发重定向 */
-        function replaceUrl(url) {
-            window.history.replaceState(window.history.state, "", url);
-        }
-
-        cleanLocation(); // 首次加载时及时处理地址栏
-
-        // 使用 MutationObserver 优化动态加载内容的 URL 清理 (性能优化)
-        const observer = new MutationObserver(mutations => {
-            // 地址栏的清理需要被防抖，以应对频繁的 history 操作
-            const debouncedCleanLocation = debounce(cleanLocation, 150);
-            debouncedCleanLocation();
-
-            mutations.forEach(mutation => {
-                mutation.addedNodes.forEach(node => {
-                    if (node.nodeType !== 1) return; // 只处理元素节点
-
-                    const linksToClean = [];
-                    // 检查节点本身是否是 <a> 标签
-                    if (node.matches('a')) {
-                        linksToClean.push(node);
-                    }
-                    // 查找节点内部所有的 <a> 标签
-                    linksToClean.push(...node.querySelectorAll('a'));
-
-                    if (linksToClean.length > 0) {
-                        anchor(linksToClean);
-                    }
-                });
-            });
+    /** 处理href属性 */
+    function anchor(list) {
+        list.forEach(d => {
+            if (!d.href) return;
+            d.href.includes("bilibili.tv") && (d.href = d.href.replace("bilibili.tv", "bilibili.com")); // tv域名失效
+            d.href = clean(d.href);
         });
+    }
 
-        observer.observe(document, { childList: true, subtree: true });
+    /** 检查a标签 */
+    function click(e) {
+        let f = e.target;
+        while (f && f.tagName !== "A") {
+            f = f.parentNode;
+        }
+        if (f && f.tagName === "A") {
+            anchor([f]);
+        }
+    }
+
+    // 初始化干净链接功能
+    function initCleanUrls() {
+        cleanLocation(); // 首次加载时及时处理地址栏
 
         // 处理点击和右键事件，确保交互生成的链接也被清理
         window.addEventListener("click", click, true);
         window.addEventListener("contextmenu", click, true);
-        
+
         // 重写window.open
         window.open = ((__open__) => {
             return (url, name, params) => {
                 return __open__(clean(url), name, params)
             }
         })(window.open);
-        
-        // 处理navigation API (如果支持)
-        if(window.navigation) {
-            window.navigation.addEventListener('navigate', e => {
-                const newURL = clean(e.destination.url)
-                if(e.destination.url != newURL) {
-                    e.preventDefault(); // 返回前先阻止原事件
-                    if(newURL == window.location.href) return // 如果清理后和原来一样就直接返回
-                    // 否则处理清理后的链接
-                    window.history.replaceState(window.history.state, "", newURL)
-                }
-            });
-        }
     }
-    
-    // 初始化干净链接功能
-    cleanBilibiliUrls();
+    initCleanUrls();
     
     // ------------------------------ 主脚本功能 ------------------------------
   
@@ -225,6 +154,7 @@
 
             // 延迟更新封面解析按钮，等待页面内容加载
             setTimeout(addCoverAnalysisButtons, 500);
+
         }, DEBOUNCE_DELAY); // 使用防抖避免短时间内重复执行
 
         // 监听浏览器前进后退
@@ -253,9 +183,9 @@
     
     // ------------------------------ CDN锁定功能 ------------------------------
     // CDN相关常量
-    const DEFAULT_CDN = '使用默认随机分配CDN';
     const CDN_STORAGE_KEY = 'bilijx_cdn_node';
     const REGION_STORAGE_KEY = 'bilijx_region';
+    const CDN_LOCK_ENABLED_KEY = 'bilijx_cdn_lock_enabled';
     const CDN_API_URL = 'https://kanda-akihito-kun.github.io/ccb/api';
     
     // 初始CDN列表 (仅作为备用)
@@ -269,11 +199,11 @@
     
     // 地区列表和CDN列表 (会被动态更新)
     let regionList = ['默认'];
-    let cdnList = [DEFAULT_CDN, ...initCdnList];
+    let cdnList = [...initCdnList];
     
     // 获取当前选择的CDN节点
     function getCurrentCdn() {
-        return GM_getValue(CDN_STORAGE_KEY, DEFAULT_CDN);
+        return GM_getValue(CDN_STORAGE_KEY, cdnList[0] || '');
     }
     
     // 获取当前选择的地区
@@ -283,7 +213,7 @@
     
     // 判断是否启用了CDN锁定
     function isCdnLockEnabled() {
-        return getCurrentCdn() !== DEFAULT_CDN;
+        return GM_getValue(CDN_LOCK_ENABLED_KEY, false);
     }
     
     // 替换视频URL中的CDN域名
@@ -319,7 +249,7 @@
     async function getCdnListByRegion(region) {
         try {
             if (region === '默认' || region === '-') {
-                cdnList = [DEFAULT_CDN, ...initCdnList];
+                cdnList = [...initCdnList];
                 updateCdnSelector(); // 切换到默认时也需要更新
                 return;
             }
@@ -331,14 +261,14 @@
             const data = await response.json();
 
             const regionData = data[region] || [];
-            cdnList = [DEFAULT_CDN, ...regionData];
+            cdnList = [...regionData];
 
             updateCdnSelector();
             console.log(`已更新 ${region} 地区的CDN列表:`, cdnList);
         } catch (error) {
             console.error(`获取 ${region} 地区CDN列表失败:`, error);
             // 在出错时使用默认列表
-            cdnList = [DEFAULT_CDN, ...initCdnList];
+            cdnList = [...initCdnList];
             updateCdnSelector();
         }
     }
@@ -354,13 +284,9 @@
     }
     
     // 创建设置面板
-    async function createSettingsPanel() {
+    function createSettingsPanel() {
         // 如果已经存在设置面板，则返回
         if (document.getElementById('bilijx-settings-panel')) return;
-        
-        // 先获取最新的地区和CDN列表
-        await getRegionList();
-        await getCdnListByRegion(getCurrentRegion());
         
         // 创建设置面板
         const settingsPanel = document.createElement('div');
@@ -492,13 +418,22 @@
                 <h2>B站解析脚本设置</h2>
                 <span id="bilijx-settings-close">×</span>
             </div>
+
+            <div class="bilijx-settings-group">
+                <h3>CDN 锁定</h3>
+                <label style="display: flex; align-items: center; cursor: pointer;">
+                    <input type="checkbox" id="bilijx-cdn-lock-enabled" style="margin-right: 8px;">
+                    <span>启用CDN锁定</span>
+                </label>
+                <p style="margin-top: 8px; font-size: 12px; color: #999;">
+                    勾选后，视频解析将强制使用下方选择的CDN节点。
+                </p>
+            </div>
             
             <div class="bilijx-settings-group">
                 <h3>地区选择</h3>
                 <select id="bilijx-region-select">
-                    ${regionList.map(region => 
-                        `<option value="${region}" ${region === getCurrentRegion() ? 'selected' : ''}>${region}</option>`
-                    ).join('')}
+                    <option>加载中...</option>
                 </select>
                 <p style="margin-top: 8px; font-size: 12px; color: #999;">
                     选择您所在的地区，以获取该地区最优的CDN节点列表
@@ -508,9 +443,7 @@
             <div class="bilijx-settings-group">
                 <h3>CDN节点选择</h3>
                 <select id="bilijx-cdn-select">
-                    ${cdnList.map(cdn => 
-                        `<option value="${cdn}" ${cdn === getCurrentCdn() ? 'selected' : ''}>${cdn}</option>`
-                    ).join('')}
+                    <option>请先选择地区</option>
                 </select>
                 <p style="margin-top: 8px; font-size: 12px; color: #999;">
                     选择特定CDN节点可以提高视频加载速度，如遇视频加载慢可尝试切换。
@@ -526,6 +459,9 @@
         // 添加设置面板到页面
         document.body.appendChild(settingsPanel);
         
+        // 设置CDN锁定复选框的初始状态
+        document.getElementById('bilijx-cdn-lock-enabled').checked = GM_getValue(CDN_LOCK_ENABLED_KEY, false);
+        
         // 添加设置按钮
         const settingsButton = document.createElement('button');
         settingsButton.id = 'bilijx-settings-button';
@@ -534,8 +470,24 @@
         document.body.appendChild(settingsButton);
         
         // 设置按钮点击事件
-        settingsButton.addEventListener('click', function() {
+        settingsButton.addEventListener('click', async function() {
             document.getElementById('bilijx-settings-panel').style.display = 'block';
+            // 每次打开时，都重新设置一下勾选状态
+            document.getElementById('bilijx-cdn-lock-enabled').checked = GM_getValue(CDN_LOCK_ENABLED_KEY, false);
+
+            // 首次打开时加载数据
+            if (!this.dataset.loaded) {
+                this.dataset.loaded = true; // 标记为已加载，避免重复加载
+
+                await getRegionList();
+                const regionSelect = document.getElementById('bilijx-region-select');
+                if (regionSelect) {
+                    regionSelect.innerHTML = regionList.map(region =>
+                        `<option value="${region}" ${region === getCurrentRegion() ? 'selected' : ''}>${region}</option>`
+                    ).join('');
+                }
+                await getCdnListByRegion(getCurrentRegion());
+            }
         });
         
         // 关闭按钮点击事件
@@ -558,10 +510,12 @@
         // 保存按钮点击事件
         document.getElementById('bilijx-settings-save').addEventListener('click', function() {
             // 获取选择的值
+            const cdnLockEnabled = document.getElementById('bilijx-cdn-lock-enabled').checked;
             const selectedRegion = document.getElementById('bilijx-region-select').value;
             const selectedCdn = document.getElementById('bilijx-cdn-select').value;
             
             // 保存设置
+            GM_setValue(CDN_LOCK_ENABLED_KEY, cdnLockEnabled);
             GM_setValue(REGION_STORAGE_KEY, selectedRegion);
             GM_setValue(CDN_STORAGE_KEY, selectedCdn);
             
@@ -1245,7 +1199,7 @@
     
     // 直播页面的解析按钮点击事件
     function clickLiveAnalysis() {
-        var url = window.location.href;
+        const url = window.location.href;
         const roomIdMatch = url.match(/live\.bilibili\.com\/(\d+)/);
         if (roomIdMatch && roomIdMatch[1]) {
             analysisLive(roomIdMatch[1]);
@@ -1415,14 +1369,29 @@
     // 创建设置面板
     createSettingsPanel();
     
-    // 使用MutationObserver监听DOM变化，为新加载的封面添加按钮
+    // 使用统一的MutationObserver监听所有DOM变化
     const observer = new MutationObserver(debounce(function(mutations) {
-        // 移除可能重新出现的旧按钮
+        // 1. 清理动态加载内容中的链接
+        mutations.forEach(mutation => {
+            mutation.addedNodes.forEach(node => {
+                if (node.nodeType !== 1) return; // 只处理元素节点
+                const linksToClean = [];
+                if (node.matches('a')) {
+                    linksToClean.push(node);
+                }
+                linksToClean.push(...node.querySelectorAll('a'));
+                if (linksToClean.length > 0) {
+                    anchor(linksToClean);
+                }
+            });
+        });
+
+        // 2. 移除可能重新出现的旧按钮
         removeOldButtons();
-        // 添加封面解析按钮
+        // 3. 添加封面解析按钮
         addCoverAnalysisButtons();
     }, DEBOUNCE_DELAY));
-    
+
     observer.observe(document.body, {
         childList: true,
         subtree: true
