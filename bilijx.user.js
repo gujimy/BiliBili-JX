@@ -194,11 +194,58 @@
         'upos-sz-mirroraliov.bilivideo.com',
         'upos-sz-mirroralib.bilivideo.com',
         'upos-sz-estgcos.bilivideo.com',
-
     ];
     
+    // ==================== 🌍 VRChat世界可用CDN ====================
+    
+    // 📚 中文新手教程 白名单
+    const vrchatTutorialCdnList = [
+        'upos-sz-mirrorali.bilivideo.com',
+        'upos-sz-mirroralib.bilivideo.com',
+        'upos-sz-mirroralio1.bilivideo.com',
+        'upos-sz-mirrorali02.bilivideo.com',
+        'upos-sz-estgoss.bilivideo.com',
+        'upos-sz-mirrorcos.bilivideo.com',
+        'upos-sz-mirrorcosb.bilivideo.com',
+        'upos-sz-mirrorcoso1.bilivideo.com',
+        'upos-sz-mirrorcosdisp.bilivideo.com',
+        'upos-sz-mirrorhw.bilivideo.com',
+        'upos-sz-mirrorhwb.bilivideo.com',
+        'upos-sz-mirror08ct.bilivideo.com',
+        'upos-sz-mirrorhwo1.bilivideo.com',
+        'upos-sz-mirror08c.bilivideo.com',
+        'upos-sz-mirror08h.bilivideo.com',
+        'upos-sz-mirrorbd.bilivideo.com',
+        'upos-sz-upcdnbda2.bilivideo.com',
+        'upos-sz-mirrorhwdisp.bilivideo.com',
+    ];
+    
+    // 💬 中文吧 白名单
+    const vrchatChineseBarCdnList = [
+        'upos-sz-mirrorali.bilivideo.com',
+        'upos-sz-estghw.bilivideo.com',
+        'upos-sz-mirrorbd.bilivideo.com',
+        'upos-sz-mirrorcos.bilivideo.com',
+        'upos-sz-mirror08c.bilivideo.com',
+    ];
+    
+    // 🎤 台北纯K 白名单
+    const vrchatTaipeiKtvCdnList = [
+        'upos-sz-mirrorbd.bilivideo.com',
+        'upos-sz-mirrorcos.bilivideo.com',
+        'upos-sz-mirror08c.bilivideo.com',
+        'upos-sz-mirrorali.bilivideo.com',
+    ];
+    
+    // VRChat世界CDN映射表
+    const vrchatCdnMap = {
+        '🌍 VRC-中文新手教程': vrchatTutorialCdnList,
+        '🌍 VRC-中文吧': vrchatChineseBarCdnList,
+        '🌍 VRC-台北纯K': vrchatTaipeiKtvCdnList,
+    };
+    
     // 地区列表和CDN列表 (会被动态更新)
-    let regionList = ['默认'];
+    let regionList = ['默认', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'];
     let cdnList = [...initCdnList];
     
     // 获取当前选择的CDN节点
@@ -230,27 +277,40 @@
     
     // 获取地区列表 (已优化)
     async function getRegionList() {
+        // VRChat世界选项列表
+        const vrchatOptions = ['🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'];
+        
         try {
             const response = await fetch(`${CDN_API_URL}/region.json`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            regionList = ['默认', ...data];
+            // 始终保留"默认"和VRChat世界选项
+            regionList = ['默认', ...vrchatOptions, ...data];
             console.log('已更新地区列表:', regionList);
         } catch (error) {
             console.error('获取地区列表失败:', error);
-            // 在出错时使用默认列表
-            regionList = ['默认'];
+            // 在出错时使用默认列表，仍保留VRChat世界选项
+            regionList = ['默认', ...vrchatOptions];
         }
     }
 
     // 根据地区获取CDN列表 (已优化)
     async function getCdnListByRegion(region) {
         try {
+            // 处理"默认"选项
             if (region === '默认' || region === '-') {
                 cdnList = [...initCdnList];
-                updateCdnSelector(); // 切换到默认时也需要更新
+                updateCdnSelector();
+                return;
+            }
+            
+            // 处理VRChat世界选项
+            if (vrchatCdnMap[region]) {
+                cdnList = [...vrchatCdnMap[region]];
+                updateCdnSelector();
+                console.log(`已切换到 ${region} CDN列表:`, cdnList);
                 return;
             }
 
@@ -436,7 +496,8 @@
                     <option>加载中...</option>
                 </select>
                 <p style="margin-top: 8px; font-size: 12px; color: #999;">
-                    选择您所在的地区，以获取该地区最优的CDN节点列表
+                    选择您所在的地区，以获取该地区最优的CDN节点列表<br>
+                    <strong style="color: #FB7299;">💡 VRChat用户请选择对应世界的CDN白名单</strong>
                 </p>
             </div>
             
