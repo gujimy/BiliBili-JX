@@ -186,6 +186,7 @@
     const CDN_STORAGE_KEY = 'bilijx_cdn_node';
     const REGION_STORAGE_KEY = 'bilijx_region';
     const CDN_LOCK_ENABLED_KEY = 'bilijx_cdn_lock_enabled';
+    const CUSTOM_CDN_STORAGE_KEY = 'bilijx_custom_cdn_list'; // 自定义CDN存储键
     const CDN_API_URL = 'https://kanda-akihito-kun.github.io/ccb/api';
     
     // 初始CDN列表 (仅作为备用)
@@ -245,7 +246,49 @@
     };
     
     // 地区列表和CDN列表 (会被动态更新)
-    let regionList = ['默认', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'];
+    let regionList = ['默认', '📝 自定义CDN', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'];
+    
+    // ==================== 自定义CDN管理功能 ====================
+    
+    // 获取自定义CDN列表
+    function getCustomCdnList() {
+        const stored = GM_getValue(CUSTOM_CDN_STORAGE_KEY, '[]');
+        try {
+            return JSON.parse(stored);
+        } catch (e) {
+            return [];
+        }
+    }
+    
+    // 保存自定义CDN列表
+    function saveCustomCdnList(list) {
+        GM_setValue(CUSTOM_CDN_STORAGE_KEY, JSON.stringify(list));
+    }
+    
+    // 添加自定义CDN
+    function addCustomCdn(name, url) {
+        const list = getCustomCdnList();
+        // 检查是否已存在
+        if (list.some(item => item.url === url)) {
+            return { success: false, message: '该CDN地址已存在' };
+        }
+        list.push({ name, url, id: Date.now() });
+        saveCustomCdnList(list);
+        return { success: true, message: '添加成功' };
+    }
+    
+    // 删除自定义CDN
+    function removeCustomCdn(id) {
+        const list = getCustomCdnList();
+        const newList = list.filter(item => item.id !== id);
+        saveCustomCdnList(newList);
+        return newList;
+    }
+    
+    // 获取自定义CDN的URL列表（用于CDN选择器）
+    function getCustomCdnUrls() {
+        return getCustomCdnList().map(item => item.url);
+    }
     let cdnList = [...initCdnList];
     
     // 获取当前选择的CDN节点
@@ -277,8 +320,8 @@
     
     // 获取地区列表 (已优化)
     async function getRegionList() {
-        // VRChat世界选项列表
-        const vrchatOptions = ['🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'];
+        // 特殊选项列表
+        const specialOptions = ['📝 自定义CDN', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'];
         
         try {
             const response = await fetch(`${CDN_API_URL}/region.json`);
@@ -286,13 +329,13 @@
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const data = await response.json();
-            // 始终保留"默认"和VRChat世界选项
-            regionList = ['默认', ...vrchatOptions, ...data];
+            // 始终保留"默认"和特殊选项
+            regionList = ['默认', ...specialOptions, ...data];
             console.log('已更新地区列表:', regionList);
         } catch (error) {
             console.error('获取地区列表失败:', error);
-            // 在出错时使用默认列表，仍保留VRChat世界选项
-            regionList = ['默认', ...vrchatOptions];
+            // 在出错时使用默认列表，仍保留特殊选项
+            regionList = ['默认', ...specialOptions];
         }
     }
 
@@ -303,6 +346,17 @@
             if (region === '默认' || region === '-') {
                 cdnList = [...initCdnList];
                 updateCdnSelector();
+                updateCustomCdnVisibility(false);
+                return;
+            }
+            
+            // 处理"📝 自定义CDN"选项
+            if (region === '📝 自定义CDN') {
+                const customUrls = getCustomCdnUrls();
+                cdnList = customUrls.length > 0 ? customUrls : ['暂无自定义CDN，请先添加'];
+                updateCdnSelector();
+                updateCustomCdnVisibility(true);
+                console.log('已切换到自定义CDN列表:', cdnList);
                 return;
             }
             
@@ -310,6 +364,7 @@
             if (vrchatCdnMap[region]) {
                 cdnList = [...vrchatCdnMap[region]];
                 updateCdnSelector();
+                updateCustomCdnVisibility(false);
                 console.log(`已切换到 ${region} CDN列表:`, cdnList);
                 return;
             }
@@ -324,12 +379,58 @@
             cdnList = [...regionData];
 
             updateCdnSelector();
+            updateCustomCdnVisibility(false);
             console.log(`已更新 ${region} 地区的CDN列表:`, cdnList);
         } catch (error) {
             console.error(`获取 ${region} 地区CDN列表失败:`, error);
             // 在出错时使用默认列表
             cdnList = [...initCdnList];
             updateCdnSelector();
+            updateCustomCdnVisibility(false);
+        }
+    }
+    
+    // 更新自定义CDN区域的显示/隐藏
+    function updateCustomCdnVisibility(show) {
+        const customCdnSection = document.getElementById('bilijx-custom-cdn-section');
+        if (customCdnSection) {
+            customCdnSection.style.display = show ? 'block' : 'none';
+        }
+    }
+    
+    // 刷新自定义CDN列表显示
+    function refreshCustomCdnList() {
+        const listContainer = document.getElementById('bilijx-custom-cdn-list');
+        if (!listContainer) return;
+        
+        const customList = getCustomCdnList();
+        
+        if (customList.length === 0) {
+            listContainer.innerHTML = '<p style="color: #999; font-size: 12px; margin: 0;">暂无自定义CDN</p>';
+        } else {
+            listContainer.innerHTML = customList.map(item => `
+                <div class="bilijx-custom-cdn-item" data-id="${item.id}">
+                    <div class="bilijx-custom-cdn-info">
+                        <span class="bilijx-custom-cdn-name">${item.name}</span>
+                        <span class="bilijx-custom-cdn-url">${item.url}</span>
+                    </div>
+                    <button class="bilijx-custom-cdn-delete" data-id="${item.id}">×</button>
+                </div>
+            `).join('');
+            
+            // 绑定删除按钮事件
+            listContainer.querySelectorAll('.bilijx-custom-cdn-delete').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const id = parseInt(this.dataset.id);
+                    removeCustomCdn(id);
+                    refreshCustomCdnList();
+                    // 更新CDN选择器
+                    const customUrls = getCustomCdnUrls();
+                    cdnList = customUrls.length > 0 ? customUrls : ['暂无自定义CDN，请先添加'];
+                    updateCdnSelector();
+                    showNotification('删除成功', '自定义CDN已删除', false);
+                });
+            });
         }
     }
     
@@ -470,6 +571,110 @@
                 background-color: rgba(251, 114, 153, 1);
                 transform: scale(1.1);
             }
+            
+            /* 自定义CDN区域样式 */
+            #bilijx-custom-cdn-section {
+                display: none;
+                margin-top: 15px;
+                padding: 15px;
+                background-color: #f5f5f5;
+                border-radius: 6px;
+                border: 1px dashed #ddd;
+            }
+            
+            #bilijx-custom-cdn-section h4 {
+                margin: 0 0 12px 0;
+                font-size: 14px;
+                color: #666;
+            }
+            
+            .bilijx-custom-cdn-inputs {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 12px;
+            }
+            
+            .bilijx-custom-cdn-inputs input {
+                flex: 1;
+                padding: 8px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 13px;
+            }
+            
+            .bilijx-custom-cdn-inputs input:first-child {
+                flex: 0.4;
+            }
+            
+            #bilijx-add-custom-cdn {
+                padding: 8px 16px;
+                background-color: #FB7299;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 13px;
+                white-space: nowrap;
+            }
+            
+            #bilijx-add-custom-cdn:hover {
+                background-color: #fc8bab;
+            }
+            
+            #bilijx-custom-cdn-list {
+                max-height: 150px;
+                overflow-y: auto;
+            }
+            
+            .bilijx-custom-cdn-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 8px;
+                margin-bottom: 6px;
+                background-color: white;
+                border-radius: 4px;
+                border: 1px solid #eee;
+            }
+            
+            .bilijx-custom-cdn-info {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                min-width: 0;
+            }
+            
+            .bilijx-custom-cdn-name {
+                font-weight: bold;
+                font-size: 13px;
+                color: #333;
+            }
+            
+            .bilijx-custom-cdn-url {
+                font-size: 11px;
+                color: #999;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            
+            .bilijx-custom-cdn-delete {
+                width: 24px;
+                height: 24px;
+                border: none;
+                background-color: #ff5252;
+                color: white;
+                border-radius: 50%;
+                cursor: pointer;
+                font-size: 16px;
+                line-height: 1;
+                margin-left: 8px;
+                flex-shrink: 0;
+            }
+            
+            .bilijx-custom-cdn-delete:hover {
+                background-color: #ff1744;
+            }
         `);
         
         // 设置面板内容
@@ -509,6 +714,18 @@
                 <p style="margin-top: 8px; font-size: 12px; color: #999;">
                     选择特定CDN节点可以提高视频加载速度，如遇视频加载慢可尝试切换。
                 </p>
+            </div>
+            
+            <div id="bilijx-custom-cdn-section">
+                <h4>➕ 添加自定义CDN</h4>
+                <div class="bilijx-custom-cdn-inputs">
+                    <input type="text" id="bilijx-custom-cdn-name" placeholder="名称 (如: 我的CDN)">
+                    <input type="text" id="bilijx-custom-cdn-url" placeholder="CDN地址 (如: upos-xxx.bilivideo.com)">
+                    <button id="bilijx-add-custom-cdn">添加</button>
+                </div>
+                <div id="bilijx-custom-cdn-list">
+                    <p style="color: #999; font-size: 12px; margin: 0;">暂无自定义CDN</p>
+                </div>
             </div>
             
             <div class="bilijx-settings-footer">
@@ -567,6 +784,54 @@
             // 根据选择的地区更新CDN列表
             await getCdnListByRegion(selectedRegion);
         });
+        
+        // 添加自定义CDN按钮点击事件
+        document.getElementById('bilijx-add-custom-cdn').addEventListener('click', function() {
+            const nameInput = document.getElementById('bilijx-custom-cdn-name');
+            const urlInput = document.getElementById('bilijx-custom-cdn-url');
+            
+            const name = nameInput.value.trim();
+            let url = urlInput.value.trim();
+            
+            // 验证输入
+            if (!name) {
+                showNotification('添加失败', '请输入CDN名称', true);
+                return;
+            }
+            if (!url) {
+                showNotification('添加失败', '请输入CDN地址', true);
+                return;
+            }
+            
+            // 处理URL格式 - 移除协议头和尾部斜杠
+            url = url.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+            
+            // 验证URL格式
+            if (!url.includes('.')) {
+                showNotification('添加失败', '请输入有效的CDN地址', true);
+                return;
+            }
+            
+            // 添加CDN
+            const result = addCustomCdn(name, url);
+            if (result.success) {
+                // 清空输入框
+                nameInput.value = '';
+                urlInput.value = '';
+                // 刷新列表
+                refreshCustomCdnList();
+                // 更新CDN选择器
+                const customUrls = getCustomCdnUrls();
+                cdnList = customUrls.length > 0 ? customUrls : ['暂无自定义CDN，请先添加'];
+                updateCdnSelector();
+                showNotification('添加成功', `已添加CDN: ${name}`, false);
+            } else {
+                showNotification('添加失败', result.message, true);
+            }
+        });
+        
+        // 初始化自定义CDN列表显示
+        refreshCustomCdnList();
         
         // 保存按钮点击事件
         document.getElementById('bilijx-settings-save').addEventListener('click', function() {
