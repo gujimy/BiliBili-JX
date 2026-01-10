@@ -25,10 +25,7 @@
     
     // ============================== 常量定义 ==============================
     
-    // 通知相关常量
-    const NOTIFICATION_TIMEOUT = 5000;
-    const ERROR_TIMEOUT = 5000;
-    const NOTIFICATION_IMAGE = 'https://wp-cdn.4ce.cn/v2/8OzfSAD.gif';
+    // 通知相关常量 (保留类型常量供兼容性使用)
     const TYPE_VIDEO = 'video';
     const TYPE_LIVE = 'live';
     const DEBOUNCE_DELAY = 300;
@@ -542,29 +539,50 @@
                 background-color: #e0e0e0;
             }
             
-            #bilijx-settings-button {
+            #bilijx-main-button {
                 position: fixed;
                 bottom: 20px;
                 left: 20px;
-                width: 45px;
-                height: 45px;
-                background-color: rgba(251, 114, 153, 0.8);
+                min-width: 60px;
+                height: 36px;
+                background-color: #FB7299;
                 color: white;
                 border: none;
-                border-radius: 50%;
-                font-size: 20px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 500;
                 cursor: pointer;
                 z-index: 9999;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+                box-shadow: 0 2px 8px rgba(251, 114, 153, 0.4);
                 transition: all 0.3s ease;
+                padding: 0 12px;
             }
-            
-            #bilijx-settings-button:hover {
-                background-color: rgba(251, 114, 153, 1);
-                transform: scale(1.1);
+
+            #bilijx-main-button:hover {
+                background-color: #fc8bab;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(251, 114, 153, 0.5);
+            }
+
+            #bilijx-main-button:active {
+                transform: translateY(0);
+            }
+
+            #bilijx-main-button.loading {
+                background-color: #faa2c1;
+            }
+
+            #bilijx-main-button.success {
+                background-color: #52c41a;
+                box-shadow: 0 2px 8px rgba(82, 196, 26, 0.4);
+            }
+
+            #bilijx-main-button.error {
+                background-color: #ff4d4f;
+                box-shadow: 0 2px 8px rgba(255, 77, 79, 0.4);
             }
             
             /* 自定义CDN区域样式 */
@@ -732,34 +750,59 @@
         // 设置CDN锁定复选框的初始状态
         document.getElementById('bilijx-cdn-lock-enabled').checked = GM_getValue(CDN_LOCK_ENABLED_KEY, false);
         
-        // 添加设置按钮
-        const settingsButton = document.createElement('button');
-        settingsButton.id = 'bilijx-settings-button';
-        settingsButton.innerHTML = '⚙️';
-        settingsButton.title = 'B站解析脚本设置';
-        document.body.appendChild(settingsButton);
-        
-        // 设置按钮点击事件
-        settingsButton.addEventListener('click', async function() {
-            document.getElementById('bilijx-settings-panel').style.display = 'block';
-            // 每次打开时，都重新设置一下勾选状态
-            document.getElementById('bilijx-cdn-lock-enabled').checked = GM_getValue(CDN_LOCK_ENABLED_KEY, false);
+        // 添加设置/解析按钮
+        const mainButton = document.createElement('button');
+        mainButton.id = 'bilijx-main-button';
+        mainButton.innerHTML = '解析';
+        mainButton.title = 'B站解析脚本';
+        document.body.appendChild(mainButton);
 
-            // 首次打开时加载数据
-            if (!this.dataset.loaded) {
-                this.dataset.loaded = true; // 标记为已加载，避免重复加载
+        // 主按钮点击事件 - 根据页面类型决定行为
+        mainButton.addEventListener('click', async function() {
+            // 在视频或直播页面时执行解析
+            if (window.isVideoPage) {
+                ButtonFeedback.setLoading(this);
+                clickVideoAnalysis({ currentTarget: this });
+            } else if (window.isLivePage) {
+                ButtonFeedback.setLoading(this);
+                clickLiveAnalysis({ currentTarget: this });
+            } else {
+                // 其他页面打开设置面板
+                document.getElementById('bilijx-settings-panel').style.display = 'block';
 
-                await CDNManager.fetchRegionList();
-                const regionSelect = document.getElementById('bilijx-region-select');
-                if (regionSelect) {
-                    regionSelect.innerHTML = CDNManager.regionList.map(region =>
-                        `<option value="${region}" ${region === CDNManager.getCurrentRegion() ? 'selected' : ''}>${region}</option>`
-                    ).join('');
+                // 每次打开时，都重新设置一下勾选状态
+                document.getElementById('bilijx-cdn-lock-enabled').checked = GM_getValue(CDN_LOCK_ENABLED_KEY, false);
+
+                // 首次打开时加载数据
+                if (!this.dataset.loaded) {
+                    this.dataset.loaded = true; // 标记为已加载，避免重复加载
+
+                    await CDNManager.fetchRegionList();
+                    const regionSelect = document.getElementById('bilijx-region-select');
+                    if (regionSelect) {
+                        regionSelect.innerHTML = CDNManager.regionList.map(region =>
+                            `<option value="${region}" ${region === CDNManager.getCurrentRegion() ? 'selected' : ''}>${region}</option>`
+                        ).join('');
+                    }
+                    await CDNManager.fetchCdnListByRegion(CDNManager.getCurrentRegion());
                 }
-                await CDNManager.fetchCdnListByRegion(CDNManager.getCurrentRegion());
             }
         });
-        
+
+        // 更新按钮状态的函数
+        function updateMainButtonState() {
+            if (window.isVideoPage || window.isLivePage) {
+                mainButton.innerHTML = '解析';
+                mainButton.title = window.isLivePage ? '点击解析当前直播间' : '点击解析当前视频';
+            } else {
+                mainButton.innerHTML = '⚙️';
+                mainButton.title = 'B站解析脚本设置';
+            }
+        }
+
+        // 首次更新按钮状态
+        updateMainButtonState();
+
         // 关闭按钮点击事件
         document.getElementById('bilijx-settings-close').addEventListener('click', function() {
             document.getElementById('bilijx-settings-panel').style.display = 'none';
@@ -845,65 +888,27 @@
         });
     }
     
-    // 添加提示框的样式
+    // 添加按钮样式
     GM_addStyle(`
         :root {
             --video-color: rgb(0, 174, 236);
             --video-color-transparent: rgba(0, 174, 236, 0.8);
-            --live-color: rgb(242, 82, 154);
-            --live-color-transparent: rgba(242, 82, 154, 0.8);
-            --white: rgb(255, 255, 255);
-            --border-color: rgb(241, 242, 243);
-            --default-notification-bg: rgba(80, 80, 80, 0.85);
-            --video-notification-bg: rgba(0, 174, 236, 0.25);
-            --live-notification-bg: rgba(242, 82, 154, 0.25);
-            --error-notification-bg: rgba(231, 76, 60, 0.25);
+            --live-color: #FB7299;
+            --live-color-transparent: rgba(251, 114, 153, 0.8);
+            --success-color: #52c41a;
+            --error-color: #ff4d4f;
         }
-        
-        #notificationBox {
-            position: fixed;
-            bottom: -100px; /* 初始位置在视口之外 */
-            left: 50%;
-            transform: translateX(-50%);
-            width: 300px;
-            padding: 20px;
-            background-color: var(--default-notification-bg);
-            color: var(--white);
-            text-align: center;
-            border-radius: 10px;
-            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3);
-            opacity: 0;
-            transition: all 0.5s ease;
-            z-index: 9999;
-            backdrop-filter: blur(3px);
+
+        @keyframes bilijx-spin {
+            to { transform: rotate(360deg); }
         }
-        
-        #notificationBox.show {
-            bottom: 20px; /* 提示框弹出位置 */
-            opacity: 1;
-        }
-        
-        #notificationBox.video-type {
-            background-color: var(--video-notification-bg);
-            border-left: 4px solid var(--video-color);
-        }
-        
-        #notificationBox.live-type {
-            background-color: var(--live-notification-bg);
-            border-left: 4px solid var(--live-color);
-        }
-        
-        #notificationBox.error-type {
-            background-color: var(--error-notification-bg);
-            border-left: 4px solid rgb(231, 76, 60);
-        }
-        
+
         /* 通用封面按钮样式 */
         .cover-analysis-btn {
             position: absolute;
             bottom: 10px;
             right: 10px;
-            color: var(--white);
+            color: white;
             border: none;
             border-radius: 8px;
             padding: 4px 10px;
@@ -919,114 +924,113 @@
             opacity: 1;
         }
         
+        /* 封面按钮加载状态 */
+        .cover-analysis-btn.loading {
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        /* 封面按钮成功状态 */
+        .cover-analysis-btn.success {
+            background: var(--success-color) !important;
+        }
+
+        /* 封面按钮错误状态 */
+        .cover-analysis-btn.error {
+            background: var(--error-color) !important;
+        }
+        
         /* 视频封面按钮特定样式 */
         .video-cover-analysis-btn {
             background: var(--video-color-transparent);
         }
-        
+
         .video-cover-analysis-btn:hover {
             background: var(--video-color);
         }
-        
+
         /* 直播封面按钮特定样式 */
         .live-cover-analysis-btn {
             background: var(--live-color-transparent);
         }
-        
+
         .live-cover-analysis-btn:hover {
-            background: var(--live-color);
-        }
-        
-        /* 通用固定解析按钮样式 */
-        .analysis-btn {
-            z-index: 999;
-            width: 45px;
-            height: 45px;
-            color: var(--white);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            font-size: 14px;
-            position: fixed;
-            cursor: pointer;
-        }
-        
-        /* 视频解析按钮特定样式 */
-        .video-analysis-btn {
-            background: var(--video-color);
-        }
-        
-        /* 直播解析按钮特定样式 */
-        .live-analysis-btn {
             background: var(--live-color);
         }
     `);
   
-    // ============================== 通知管理器 ==============================
-    
-    const NotificationManager = {
-        box: null,
+    // ============================== 按钮反馈管理器 ==============================
+
+    const ButtonFeedback = {
+        currentButton: null,
+        originalText: '',
         timer: null,
-        
-        // 初始化通知框
-        init() {
-            this.box = document.createElement('div');
-            this.box.id = 'notificationBox';
-            document.body.appendChild(this.box);
+
+        // 设置加载状态
+        setLoading(button) {
+            this.clear();
+            this.currentButton = button;
+            this.originalText = button.innerText.trim();
+            button.classList.add('loading');
+            button.innerText = '解析中';
         },
-        
-        // 显示通知
-        show(title, message, isError = false, type = null) {
-            // 如果已经有通知显示中，先清除定时器
+
+        // 设置成功状态
+        setSuccess(button, message = '✓') {
+            this.clear();
+            this.currentButton = button;
+            button.classList.remove('loading', 'error');
+            button.classList.add('success');
+            button.innerText = message;
+
+            // 3秒后恢复
+            this.timer = setTimeout(() => this.reset(button), 3000);
+        },
+
+        // 设置错误状态
+        setError(button, message = '✕') {
+            this.clear();
+            this.currentButton = button;
+            button.classList.remove('loading', 'success');
+            button.classList.add('error');
+            button.innerText = message;
+
+            // 3秒后恢复
+            this.timer = setTimeout(() => this.reset(button), 3000);
+        },
+
+        // 清除当前状态
+        clear() {
             if (this.timer) {
                 clearTimeout(this.timer);
                 this.timer = null;
-                
-                // 如果当前通知已显示，先隐藏再显示新通知
-                if (this.box.classList.contains('show')) {
-                    this.box.classList.remove('show');
-                    setTimeout(() => this._showNew(title, message, isError, type), 300);
-                    return;
-                }
             }
-            
-            this._showNew(title, message, isError, type);
+            if (this.currentButton) {
+                this.reset(this.currentButton);
+                this.currentButton = null;
+            }
         },
-        
-        // 显示新通知的内部方法
-        _showNew(title, message, isError, type) {
-            // 移除所有类型类
-            this.box.classList.remove('video-type', 'live-type', 'error-type');
-            
-            // 设置通知内容
-            this.box.innerHTML = `
-                <img src="${NOTIFICATION_IMAGE}" alt="通知图标" style="width: 100px; height: 100px;">
-                <h3>${title}</h3>
-                <p>${message}</p>
-            `;
-            
-            // 根据类型添加样式类
-            if (isError) {
-                this.box.classList.add('error-type');
-            } else if (type === TYPE_VIDEO) {
-                this.box.classList.add('video-type');
-            } else if (type === TYPE_LIVE) {
-                this.box.classList.add('live-type');
-            }
-            
-            // 显示通知
-            this.box.classList.add('show');
-            
-            // 设置自动隐藏定时器
-            this.timer = setTimeout(() => {
-                this.box.classList.remove('show');
-                this.timer = null;
-            }, isError ? ERROR_TIMEOUT : NOTIFICATION_TIMEOUT);
+
+        // 恢复按钮原始状态
+        reset(button) {
+            button.classList.remove('loading', 'success', 'error');
+            button.innerText = this.originalText;
         }
     };
-    
-    // 向后兼容的函数别名
-    const showNotification = (title, message, isError, type) =>
-        NotificationManager.show(title, message, isError, type);
+
+    // 向后兼容的函数别名 - 但现在作用于按钮
+    const showNotification = (title, message, isError, type) => {
+        // 如果有当前活动的按钮，在按钮上显示反馈
+        if (ButtonFeedback.currentButton) {
+            if (isError) {
+                ButtonFeedback.setError(ButtonFeedback.currentButton, '失败');
+            } else {
+                ButtonFeedback.setSuccess(ButtonFeedback.currentButton, '✓');
+            }
+        }
+        // 同时也输出到控制台作为备用
+        console.log(isError ? `❌ ${title}: ${message}` : `✅ ${title}: ${message}`);
+    };
     
     // 删除可能存在的所有旧按钮
     function removeOldButtons() {
@@ -1043,52 +1047,14 @@
     }
   
     // 检测页面类型
-    const isLivePage = window.location.hostname === 'live.bilibili.com' || 
+    window.isLivePage = window.location.hostname === 'live.bilibili.com' ||
                         window.location.href.includes('live.bilibili.com');
-    const isVideoPage = !isLivePage && 
-                        (window.location.href.includes('/video/') || 
-                        window.location.href.includes('bvid='));
+    window.isVideoPage = !window.isLivePage &&
+                         (window.location.href.includes('/video/') ||
+                          window.location.href.includes('bvid='));
     
     // 移除旧按钮
     removeOldButtons();
-    
-    // 创建固定解析按钮
-    function createAnalysisButton(id, isRightCorner, isLive) {
-        const button = document.createElement('button');
-        button.id = id;
-        button.className = `analysis-btn ${isLive ? 'live-analysis-btn' : 'video-analysis-btn'}`;
-        button.innerHTML = isLive ? '直播<br>解析' : '视频<br>解析';
-        
-        // 设置位置
-        if (isRightCorner) {
-            button.style.top = '800px';
-            button.style.right = '0px';
-        } else {
-            button.style.top = '100px';
-            button.style.left = '0px';
-        }
-        
-        // 添加点击事件
-        button.addEventListener('click', isLive ? clickLiveAnalysis : clickVideoAnalysis);
-        
-        // 添加到页面
-        document.body.appendChild(button);
-        
-        return button;
-    }
-    
-    // 根据页面类型创建相应的解析按钮
-    if (isVideoPage) {
-        console.log('创建视频解析按钮');
-        // 创建右下角和左上角视频解析按钮
-        createAnalysisButton('videoAnalysis1', true, false);
-        createAnalysisButton('videoAnalysis2', false, false);
-    } else if (isLivePage) {
-        console.log('创建直播解析按钮');
-        // 创建右下角和左上角直播解析按钮
-        createAnalysisButton('liveAnalysis1', true, true);
-        createAnalysisButton('liveAnalysis2', false, true);
-    }
 
     // 添加视频封面解析按钮的函数
     function addCoverAnalysisButtons() {
@@ -1298,23 +1264,26 @@
         if (getComputedStyle(element).position === 'static') {
             element.style.position = 'relative';
         }
-        
+
         // 创建解析按钮
         const analysisBtn = document.createElement('button');
         analysisBtn.className = `cover-analysis-btn ${isLive ? 'live-cover-analysis-btn' : 'video-cover-analysis-btn'}`;
         analysisBtn.innerText = isLive ? '直播解析' : '解析';
         analysisBtn.dataset.id = id;
-        
+
         // 添加点击事件
         analysisBtn.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            clickHandler(this.dataset.id);
+            // 设置加载状态
+            ButtonFeedback.setLoading(this);
+            // 调用原始处理函数，传入按钮引用
+            clickHandler(this.dataset.id, this);
         });
-        
+
         // 添加按钮到封面
         element.appendChild(analysisBtn);
-        
+
         return analysisBtn;
     }
     
@@ -1357,13 +1326,13 @@
         if (!roomId) return;
         
         // 创建直播解析按钮
-        createCoverButton(coverElement, roomId, true, analysisLive);
+        createCoverButton(coverElement, roomId, true, analysisLiveCover);
     }
     
     // 通用视频解析函数 (已使用 async/await 重构)
     async function getVideoUrl(bvid, p = 1, customCallback = null) {
         if (!bvid) {
-            showNotification('解析失败', '未提供有效的视频ID', true);
+            if (ButtonFeedback.currentButton) ButtonFeedback.setError(ButtonFeedback.currentButton, '失败');
             return;
         }
 
@@ -1376,7 +1345,7 @@
             if (match) {
                 bvid = match[0];
             } else {
-                showNotification('解析失败', '无效的视频ID格式', true);
+                if (ButtonFeedback.currentButton) ButtonFeedback.setError(ButtonFeedback.currentButton, '失败');
                 return;
             }
         }
@@ -1425,25 +1394,27 @@
             if (customCallback) {
                 customCallback(videoUrl);
             } else {
-                let message = '链接已复制到剪贴板';
-                if (CDNManager.isLockEnabled()) {
-                    message += ` (已锁定CDN: ${CDNManager.getCurrentCdn()})`;
-                }
-                showNotification('视频解析成功', message, false, TYPE_VIDEO);
+                if (ButtonFeedback.currentButton) ButtonFeedback.setSuccess(ButtonFeedback.currentButton, '✓');
             }
 
         } catch (error) {
             console.error('视频解析过程中发生错误:', error);
-            showNotification('解析失败', error.message, true);
+            if (ButtonFeedback.currentButton) ButtonFeedback.setError(ButtonFeedback.currentButton, '失败');
         }
     }
-    
+
     // 封面按钮点击解析视频
-    function analysisVideo(bvid) {
+    function analysisVideo(bvid, button) {
         // 调用通用视频解析函数，默认P1
         getVideoUrl(bvid, 1, function(videoUrl) {
-            showNotification('解析成功', '链接已复制到剪贴板', false, TYPE_VIDEO);
+            if (button) ButtonFeedback.setSuccess(button, '✓');
         });
+    }
+
+    // 封面按钮点击解析直播
+    function analysisLiveCover(roomId, button) {
+        // 调用直播解析函数
+        analysisLive(roomId, button);
     }
     
     // 从当前页面获取视频BV号的健壮性函数
@@ -1488,12 +1459,15 @@
     }
 
     // 视频页面的解析按钮点击事件 (已重构)
-    function clickVideoAnalysis() {
+    function clickVideoAnalysis(event) {
+        const button = event.currentTarget;
+        ButtonFeedback.setLoading(button);
+
         const bvid = getCurrentBvid();
 
         if (!bvid) {
             console.error('无法获取视频BV号');
-            showNotification('解析失败', '无法获取当前视频的BV号，请刷新页面后重试', true);
+            ButtonFeedback.setError(button, '失败');
             return;
         }
 
@@ -1504,21 +1478,24 @@
         console.log('获取到BV号:', bvid);
         console.log('获取到P号:', p);
 
-        // 直接调用通用视频解析函数，它内部已包含成功提示
+        // 直接调用通用视频解析函数
         getVideoUrl(bvid, p);
     }
     
     // 直播页面的解析按钮点击事件
-    function clickLiveAnalysis() {
+    function clickLiveAnalysis(event) {
+        const button = event.currentTarget;
+        ButtonFeedback.setLoading(button);
+
         const url = window.location.href;
         const roomIdMatch = url.match(/live\.bilibili\.com\/(\d+)/);
         if (roomIdMatch && roomIdMatch[1]) {
-            analysisLive(roomIdMatch[1]);
+            analysisLive(roomIdMatch[1], button);
         } else {
             // 如果在直播主页，尝试获取当前页面的第一个直播间
             const liveLinks = document.querySelectorAll('a[href*="live.bilibili.com/"]');
             let foundRoomId = null;
-            
+
             // 遍历所有直播链接，寻找房间号
             for (let i = 0; i < liveLinks.length; i++) {
                 const link = liveLinks[i].href;
@@ -1528,17 +1505,17 @@
                     break;
                 }
             }
-            
+
             if (foundRoomId) {
-                analysisLive(foundRoomId);
+                analysisLive(foundRoomId, button);
             } else {
-                showNotification('解析失败', '无法获取直播间ID，请进入具体直播间再试', true);
+                ButtonFeedback.setError(button, '失败');
             }
         }
     }
     
     // 直播解析函数 (已使用 async/await 重构)
-    async function analysisLive(roomId) {
+    async function analysisLive(roomId, button) {
         if (!roomId) return;
 
         console.log('开始解析直播:', roomId);
@@ -1560,7 +1537,7 @@
             if (data.code === 0) {
                 const streamUrl = getLiveStreamUrl(data);
                 if (streamUrl) {
-                    await handleLiveStreamUrl(streamUrl);
+                    await handleLiveStreamUrl(streamUrl, button);
                     return; // 解析成功，直接返回
                 }
             }
@@ -1574,10 +1551,10 @@
                 const oldApiM3u8Url = `https://api.live.bilibili.com/room/v1/Room/playUrl?cid=${roomId}&qn=10000&platform=h5`;
                 const m3u8Response = await fetch(oldApiM3u8Url, { credentials: 'include' });
                 if (!m3u8Response.ok) throw new Error('旧API(M3U8)请求失败');
-                
+
                 const m3u8Data = await m3u8Response.json();
                 if (m3u8Data.data && m3u8Data.data.durl && m3u8Data.data.durl.length > 0) {
-                    await handleLiveStreamUrl(m3u8Data.data.durl[0].url);
+                    await handleLiveStreamUrl(m3u8Data.data.durl[0].url, button);
                     return;
                 }
 
@@ -1589,7 +1566,7 @@
 
                 const flvData = await flvResponse.json();
                 if (flvData.data && flvData.data.durl && flvData.data.durl.length > 0) {
-                    await handleLiveStreamUrl(flvData.data.durl[0].url);
+                    await handleLiveStreamUrl(flvData.data.durl[0].url, button);
                     return;
                 }
 
@@ -1597,20 +1574,20 @@
 
             } catch (fallbackError) {
                 console.error('直播解析最终失败:', fallbackError);
-                showNotification('直播解析失败', fallbackError.message || '无法获取直播流地址', true);
+                if (button) ButtonFeedback.setError(button, '失败');
             }
         }
     }
 
     // 辅助函数：处理获取到的直播流URL
-    async function handleLiveStreamUrl(streamUrl) {
+    async function handleLiveStreamUrl(streamUrl, button) {
         let format = '未知';
         if (streamUrl.includes('.m3u8')) format = 'M3U8';
         else if (streamUrl.includes('.flv')) format = 'FLV';
 
         await navigator.clipboard.writeText(streamUrl);
         console.log(`直播流地址 (${format}):`, streamUrl);
-        showNotification(`直播解析成功 (${format})`, '链接已复制到剪贴板', false, TYPE_LIVE);
+        if (button) ButtonFeedback.setSuccess(button, '✓');
     }
     
     // 从响应中提取直播流地址
@@ -1734,18 +1711,23 @@
                                       (currentUrl.includes('/video/') ||
                                        currentUrl.includes('bvid='));
 
-            // 重新添加解析按钮
+            // 更新全局页面类型变量
+            window.isLivePage = isCurrentLivePage;
+            window.isVideoPage = isCurrentVideoPage;
+
+            // 移除可能重新出现的旧按钮
             removeOldButtons();
 
-            // 根据新的页面类型创建相应的解析按钮
-            if (isCurrentVideoPage) {
-                console.log('URL变化后重新创建视频解析按钮');
-                createAnalysisButton('videoAnalysis1', true, false);
-                createAnalysisButton('videoAnalysis2', false, false);
-            } else if (isCurrentLivePage) {
-                console.log('URL变化后重新创建直播解析按钮');
-                createAnalysisButton('liveAnalysis1', true, true);
-                createAnalysisButton('liveAnalysis2', false, true);
+            // 更新主按钮状态
+            const mainButton = document.getElementById('bilijx-main-button');
+            if (mainButton) {
+                if (isCurrentVideoPage || isCurrentLivePage) {
+                    mainButton.innerHTML = '解析';
+                    mainButton.title = isCurrentLivePage ? '点击解析当前直播间' : '点击解析当前视频';
+                } else {
+                    mainButton.innerHTML = '⚙️';
+                    mainButton.title = 'B站解析脚本设置';
+                }
             }
 
             // 延迟更新封面解析按钮，等待页面内容加载
@@ -1773,9 +1755,6 @@
         wrapHistoryMethod('pushState');
         wrapHistoryMethod('replaceState');
     }
-    
-    // 初始化通知管理器
-    NotificationManager.init();
     
     // 启动URL变化监听
     setupUrlChangeListener();
