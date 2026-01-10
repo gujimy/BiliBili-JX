@@ -23,372 +23,367 @@
 (function () {
     'use strict';
     
-    // ------------------------------ 干净链接功能 ------------------------------
-    function isURL(url, base) {
-        try {
-            if (typeof url === "string" && /^[\W\w]+\.[\W\w]+/.test(url) && !/^[a-z]+:/.test(url)) {
-                // 处理省略协议头情况
-                const str = url.startsWith("//") ? "" : "//";
-                url = location.protocol + str + url;
-            }
-            return new URL(url, base);
-        } catch (e) {
-            return false;
-        }
-    }
-
-    /** 垃圾参数 */
-    const paramsSet = new Set([
-        'spm_id_from', 'from_source', 'msource', 'bsource', 'seid', 'source',
-        'session_id', 'visit_id', 'sourceFrom', 'from_spmid', 'share_source',
-        'share_medium', 'share_plat', 'share_session_id', 'share_tag', 'unique_k',
-        "csource", "vd_source", "tab", "is_story_h5", "share_from", "plat_id",
-        "-Arouter", "spmid",
-    ]);
-
-    /** 清理url */
-    function clean(str) {
-        if (/.*:\/\/.*.bilibili.com\/.*/.test(str) && !str.includes('passport.bilibili.com')) {
-            const url = isURL(str);
-            if (url) {
-                paramsSet.forEach(d => url.searchParams.delete(d));
-                return url.toJSON();
-            }
-        }
-        return str;
-    }
-
-    /** 地址备份 */
-    let locationBackup;
-
-    /** 修改当前URL而不触发重定向 */
-    function replaceUrl(url) {
-        window.history.replaceState(window.history.state, "", url);
-    }
-
-    /** 处理地址栏 */
-    function cleanLocation() {
-        const { href } = location;
-        if (href === locationBackup) return;
-        replaceUrl(locationBackup = clean(href));
-    }
-
-    /** 处理href属性 */
-    function anchor(list) {
-        list.forEach(d => {
-            if (!d.href) return;
-            d.href.includes("bilibili.tv") && (d.href = d.href.replace("bilibili.tv", "bilibili.com")); // tv域名失效
-            d.href = clean(d.href);
-        });
-    }
-
-    /** 检查a标签 */
-    function click(e) {
-        let f = e.target;
-        while (f && f.tagName !== "A") {
-            f = f.parentNode;
-        }
-        if (f && f.tagName === "A") {
-            anchor([f]);
-        }
-    }
-
-    // 初始化干净链接功能
-    function initCleanUrls() {
-        cleanLocation(); // 首次加载时及时处理地址栏
-
-        // 处理点击和右键事件，确保交互生成的链接也被清理
-        window.addEventListener("click", click, true);
-        window.addEventListener("contextmenu", click, true);
-
-        // 重写window.open
-        window.open = ((__open__) => {
-            return (url, name, params) => {
-                return __open__(clean(url), name, params)
-            }
-        })(window.open);
-    }
-    initCleanUrls();
+    // ============================== 常量定义 ==============================
     
-    // ------------------------------ 主脚本功能 ------------------------------
-  
-    // 定义一些常量
-    const NOTIFICATION_TIMEOUT = 5000; // 5秒 (原来是10秒，已缩减一半)
-    const ERROR_TIMEOUT = 5000; // 5秒
+    // 通知相关常量
+    const NOTIFICATION_TIMEOUT = 5000;
+    const ERROR_TIMEOUT = 5000;
     const NOTIFICATION_IMAGE = 'https://wp-cdn.4ce.cn/v2/8OzfSAD.gif';
     const TYPE_VIDEO = 'video';
     const TYPE_LIVE = 'live';
-    const DEBOUNCE_DELAY = 300; // 防抖延迟时间
+    const DEBOUNCE_DELAY = 300;
     
-    // 存储上一次的URL，用于检测URL变化
-    let lastUrl = window.location.href;
-    
-    // 监听URL变化的函数 (已优化为事件驱动)
-    function setupUrlChangeListener() {
-        const handleUrlChange = debounce(() => {
-            const currentUrl = window.location.href;
-            if (currentUrl === lastUrl) return; // URL没有实际变化
-
-            console.log('URL已变化:', currentUrl);
-            lastUrl = currentUrl;
-
-            // 检测页面类型
-            const isCurrentLivePage = currentUrl.includes('live.bilibili.com');
-            const isCurrentVideoPage = !isCurrentLivePage &&
-                                      (currentUrl.includes('/video/') ||
-                                       currentUrl.includes('bvid='));
-
-            // 重新添加解析按钮
-            removeOldButtons();
-
-            // 根据新的页面类型创建相应的解析按钮
-            if (isCurrentVideoPage) {
-                console.log('URL变化后重新创建视频解析按钮');
-                createAnalysisButton('videoAnalysis1', true, false);
-                createAnalysisButton('videoAnalysis2', false, false);
-            } else if (isCurrentLivePage) {
-                console.log('URL变化后重新创建直播解析按钮');
-                createAnalysisButton('liveAnalysis1', true, true);
-                createAnalysisButton('liveAnalysis2', false, true);
-            }
-
-            // 延迟更新封面解析按钮，等待页面内容加载
-            setTimeout(addCoverAnalysisButtons, 500);
-
-        }, DEBOUNCE_DELAY); // 使用防抖避免短时间内重复执行
-
-        // 监听浏览器前进后退
-        window.addEventListener('popstate', handleUrlChange);
-
-        // 封装并重写 history 方法
-        const wrapHistoryMethod = (method) => {
-            const original = history[method];
-            history[method] = function(...args) {
-                const result = original.apply(this, args);
-                // 创建并触发一个自定义事件，以便其他可能依赖 history 变化的代码也能监听到
-                const event = new Event(method.toLowerCase());
-                event.arguments = args;
-                window.dispatchEvent(event);
-                
-                // 执行我们的URL变化处理逻辑
-                handleUrlChange();
-                return result;
-            };
-        };
-
-        // 重写 pushState 和 replaceState
-        wrapHistoryMethod('pushState');
-        wrapHistoryMethod('replaceState');
-    }
-    
-    // ------------------------------ CDN锁定功能 ------------------------------
     // CDN相关常量
     const CDN_STORAGE_KEY = 'bilijx_cdn_node';
     const REGION_STORAGE_KEY = 'bilijx_region';
     const CDN_LOCK_ENABLED_KEY = 'bilijx_cdn_lock_enabled';
-    const CUSTOM_CDN_STORAGE_KEY = 'bilijx_custom_cdn_list'; // 自定义CDN存储键
+    const CUSTOM_CDN_STORAGE_KEY = 'bilijx_custom_cdn_list';
     const CDN_API_URL = 'https://kanda-akihito-kun.github.io/ccb/api';
     
-    // 初始CDN列表 (仅作为备用)
-    const initCdnList = [
+    // URL清理相关常量
+    const TRACKING_PARAMS = new Set([
+        'spm_id_from', 'from_source', 'msource', 'bsource', 'seid', 'source',
+        'session_id', 'visit_id', 'sourceFrom', 'from_spmid', 'share_source',
+        'share_medium', 'share_plat', 'share_session_id', 'share_tag', 'unique_k',
+        'csource', 'vd_source', 'tab', 'is_story_h5', 'share_from', 'plat_id',
+        '-Arouter', 'spmid',
+    ]);
+    
+    // 初始CDN列表
+    const INIT_CDN_LIST = [
         'upos-sz-mirrorali.bilivideo.com',
         'upos-sz-mirroraliov.bilivideo.com',
         'upos-sz-mirroralib.bilivideo.com',
         'upos-sz-estgcos.bilivideo.com',
     ];
     
-    // ==================== 🌍 VRChat世界可用CDN ====================
-    
-    // 📚 中文新手教程 白名单
-    const vrchatTutorialCdnList = [
-        'upos-sz-mirrorali.bilivideo.com',
-        'upos-sz-mirroralib.bilivideo.com',
-        'upos-sz-mirroralio1.bilivideo.com',
-        'upos-sz-mirrorali02.bilivideo.com',
-        'upos-sz-estgoss.bilivideo.com',
-        'upos-sz-mirrorcos.bilivideo.com',
-        'upos-sz-mirrorcosb.bilivideo.com',
-        'upos-sz-mirrorcoso1.bilivideo.com',
-        'upos-sz-mirrorcosdisp.bilivideo.com',
-        'upos-sz-mirrorhw.bilivideo.com',
-        'upos-sz-mirrorhwb.bilivideo.com',
-        'upos-sz-mirror08ct.bilivideo.com',
-        'upos-sz-mirrorhwo1.bilivideo.com',
-        'upos-sz-mirror08c.bilivideo.com',
-        'upos-sz-mirror08h.bilivideo.com',
-        'upos-sz-mirrorbd.bilivideo.com',
-        'upos-sz-upcdnbda2.bilivideo.com',
-        'upos-sz-mirrorhwdisp.bilivideo.com',
-    ];
-    
-    // 💬 中文吧 白名单
-    const vrchatChineseBarCdnList = [
-        'upos-sz-mirrorali.bilivideo.com',
-        'upos-sz-estghw.bilivideo.com',
-        'upos-sz-mirrorbd.bilivideo.com',
-        'upos-sz-mirrorcos.bilivideo.com',
-        'upos-sz-mirror08c.bilivideo.com',
-    ];
-    
-    // 🎤 台北纯K 白名单
-    const vrchatTaipeiKtvCdnList = [
-        'upos-sz-mirrorbd.bilivideo.com',
-        'upos-sz-mirrorcos.bilivideo.com',
-        'upos-sz-mirror08c.bilivideo.com',
-        'upos-sz-mirrorali.bilivideo.com',
-    ];
-    
-    // VRChat世界CDN映射表
-    const vrchatCdnMap = {
-        '🌍 VRC-中文新手教程': vrchatTutorialCdnList,
-        '🌍 VRC-中文吧': vrchatChineseBarCdnList,
-        '🌍 VRC-台北纯K': vrchatTaipeiKtvCdnList,
+    // VRChat世界CDN白名单
+    const VRCHAT_CDN_MAP = {
+        '🌍 VRC-中文新手教程': [
+            'upos-sz-mirrorali.bilivideo.com',
+            'upos-sz-mirroralib.bilivideo.com',
+            'upos-sz-mirroralio1.bilivideo.com',
+            'upos-sz-mirrorali02.bilivideo.com',
+            'upos-sz-estgoss.bilivideo.com',
+            'upos-sz-mirrorcos.bilivideo.com',
+            'upos-sz-mirrorcosb.bilivideo.com',
+            'upos-sz-mirrorcoso1.bilivideo.com',
+            'upos-sz-mirrorcosdisp.bilivideo.com',
+            'upos-sz-mirrorhw.bilivideo.com',
+            'upos-sz-mirrorhwb.bilivideo.com',
+            'upos-sz-mirror08ct.bilivideo.com',
+            'upos-sz-mirrorhwo1.bilivideo.com',
+            'upos-sz-mirror08c.bilivideo.com',
+            'upos-sz-mirror08h.bilivideo.com',
+            'upos-sz-mirrorbd.bilivideo.com',
+            'upos-sz-upcdnbda2.bilivideo.com',
+            'upos-sz-mirrorhwdisp.bilivideo.com',
+        ],
+        '🌍 VRC-中文吧': [
+            'upos-sz-mirrorali.bilivideo.com',
+            'upos-sz-estghw.bilivideo.com',
+            'upos-sz-mirrorbd.bilivideo.com',
+            'upos-sz-mirrorcos.bilivideo.com',
+            'upos-sz-mirror08c.bilivideo.com',
+        ],
+        '🌍 VRC-台北纯K': [
+            'upos-sz-mirrorbd.bilivideo.com',
+            'upos-sz-mirrorcos.bilivideo.com',
+            'upos-sz-mirror08c.bilivideo.com',
+            'upos-sz-mirrorali.bilivideo.com',
+        ],
     };
     
-    // 地区列表和CDN列表 (会被动态更新)
-    let regionList = ['默认', '📝 自定义CDN', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'];
+    // 封面选择器
+    const VIDEO_COVER_SELECTORS = [
+        '.video-card a.video-card__content',
+        '.bili-video-card__wrap a.bili-video-card__image--link',
+        '.bili-video-card .bili-video-card__image > a',
+        '.bili-video-card__wrap > a',
+        '.video-item .bili-video-card__wrap a',
+        '.search-card .video-card__content',
+        '.search-card .bili-video-card__image--link',
+        '.search-card__content .bili-video-card__image--link',
+        '.search-card__info .bili-video-card__image--link',
+        'a.cover',
+        '.cover-normal',
+        '.cover > a',
+        '.upuser-video-card__content',
+        '.small-item .cover-container',
+        '.small-cover__content',
+        '.video-content .cover-container',
+        '.video-page-card-small',
+        '.video-page-card',
+        '.rec-list .video-card-reco',
+        '.card-box .video-card-common',
+        '.aside-panel-main a.pic-box',
+        '.video-list-item .video-cover',
+        '.card-box .pic',
+        '.rank-item .content-wrap',
+        '.rank-wrap .info-box',
+        '.storey-box .spread-module',
+        '.spread-item a.pic',
+        '.channel-list .channel-item',
+        '.video-container .bili-video-card',
+        '.bili-dyn-item a.bili-video-card__cover',
+        '.bili-dyn-card-video__wrap',
+        '.bili-dyn-content .bili-dyn-card-video',
+        '.history-wrap .cover-contain',
+        '.history-wrap .video-card__content',
+        '.history-wrap .history-card',
+        '.history-wrap .card-box .pic',
+        '.history-wrap .bili-video-card__image--link',
+        '.history-list .history-card .pic-box',
+        '.history-list .cover a',
+        '.bangumi-card .cover-box',
+        '.bangumi-card-media .media-cover',
+        '.bangumi-list .cover',
+        '.season-wrap .cover',
+        '.media-card .cover-container'
+    ].join(',');
     
-    // ==================== 自定义CDN管理功能 ====================
+    const LIVE_COVER_SELECTORS = [
+        '.live-card .live-card-wrapper',
+        '.live-card .cover-ctnr',
+        '.live-card .cover',
+        '.room-card .cover-ctnr',
+        '.room-card-wrapper .room-cover',
+        '.bili-live-card__cover',
+        '.bili-live-card__wrap',
+        '.bili-dyn-live-card',
+        '.bili-video-card__wrap .bili-live-card',
+        'a[href*="live.bilibili.com"]',
+        '.live-box .cover',
+        '.room-list .room-card'
+    ].join(',');
     
-    // 获取自定义CDN列表
-    function getCustomCdnList() {
-        const stored = GM_getValue(CUSTOM_CDN_STORAGE_KEY, '[]');
-        try {
-            return JSON.parse(stored);
-        } catch (e) {
-            return [];
-        }
+    // ============================== 工具函数 ==============================
+    
+    // 防抖函数
+    function debounce(func, delay) {
+        let timer = null;
+        return function(...args) {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+                func.apply(this, args);
+                timer = null;
+            }, delay);
+        };
     }
     
-    // 保存自定义CDN列表
-    function saveCustomCdnList(list) {
-        GM_setValue(CUSTOM_CDN_STORAGE_KEY, JSON.stringify(list));
-    }
+    // ============================== URL清理模块 ==============================
     
-    // 添加自定义CDN
-    function addCustomCdn(name, url) {
-        const list = getCustomCdnList();
-        // 检查是否已存在
-        if (list.some(item => item.url === url)) {
-            return { success: false, message: '该CDN地址已存在' };
-        }
-        list.push({ name, url, id: Date.now() });
-        saveCustomCdnList(list);
-        return { success: true, message: '添加成功' };
-    }
-    
-    // 删除自定义CDN
-    function removeCustomCdn(id) {
-        const list = getCustomCdnList();
-        const newList = list.filter(item => item.id !== id);
-        saveCustomCdnList(newList);
-        return newList;
-    }
-    
-    // 获取自定义CDN的URL列表（用于CDN选择器）
-    function getCustomCdnUrls() {
-        return getCustomCdnList().map(item => item.url);
-    }
-    let cdnList = [...initCdnList];
-    
-    // 获取当前选择的CDN节点
-    function getCurrentCdn() {
-        return GM_getValue(CDN_STORAGE_KEY, cdnList[0] || '');
-    }
-    
-    // 获取当前选择的地区
-    function getCurrentRegion() {
-        return GM_getValue(REGION_STORAGE_KEY, regionList[0]);
-    }
-    
-    // 判断是否启用了CDN锁定
-    function isCdnLockEnabled() {
-        return GM_getValue(CDN_LOCK_ENABLED_KEY, false);
-    }
-    
-    // 替换视频URL中的CDN域名
-    function replaceCdnInUrl(url) {
-        if (!isCdnLockEnabled()) return url;
-        
-        const currentCdn = getCurrentCdn();
-        // 替换URL中的CDN域名部分
-        return url.replace(
-            /https:\/\/[^\/]+\//,
-            'https://' + currentCdn + '/'
-        );
-    }
-    
-    // 获取地区列表 (已优化)
-    async function getRegionList() {
-        // 特殊选项列表
-        const specialOptions = ['📝 自定义CDN', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'];
-        
-        try {
-            const response = await fetch(`${CDN_API_URL}/region.json`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+    const URLCleaner = {
+        // 验证并解析URL
+        parseURL(url, base) {
+            try {
+                if (typeof url === "string" && /^[\W\w]+\.[\W\w]+/.test(url) && !/^[a-z]+:/.test(url)) {
+                    const prefix = url.startsWith("//") ? "" : "//";
+                    url = location.protocol + prefix + url;
+                }
+                return new URL(url, base);
+            } catch (e) {
+                return null;
             }
-            const data = await response.json();
-            // 始终保留"默认"和特殊选项
-            regionList = ['默认', ...specialOptions, ...data];
-            console.log('已更新地区列表:', regionList);
-        } catch (error) {
-            console.error('获取地区列表失败:', error);
-            // 在出错时使用默认列表，仍保留特殊选项
-            regionList = ['默认', ...specialOptions];
-        }
-    }
-
-    // 根据地区获取CDN列表 (已优化)
-    async function getCdnListByRegion(region) {
-        try {
-            // 处理"默认"选项
-            if (region === '默认' || region === '-') {
-                cdnList = [...initCdnList];
-                updateCdnSelector();
-                updateCustomCdnVisibility(false);
-                return;
+        },
+        
+        // 清理URL中的跟踪参数
+        cleanURL(urlString) {
+            if (!/.*:\/\/.*.bilibili.com\/.*/.test(urlString) || urlString.includes('passport.bilibili.com')) {
+                return urlString;
             }
             
-            // 处理"📝 自定义CDN"选项
-            if (region === '📝 自定义CDN') {
-                const customUrls = getCustomCdnUrls();
-                cdnList = customUrls.length > 0 ? customUrls : ['暂无自定义CDN，请先添加'];
-                updateCdnSelector();
-                updateCustomCdnVisibility(true);
-                console.log('已切换到自定义CDN列表:', cdnList);
-                return;
-            }
+            const url = this.parseURL(urlString);
+            if (!url) return urlString;
             
-            // 处理VRChat世界选项
-            if (vrchatCdnMap[region]) {
-                cdnList = [...vrchatCdnMap[region]];
+            TRACKING_PARAMS.forEach(param => url.searchParams.delete(param));
+            return url.toString();
+        },
+        
+        // 清理链接元素
+        cleanLinks(links) {
+            links.forEach(link => {
+                if (!link.href) return;
+                
+                // 修复失效的tv域名
+                if (link.href.includes("bilibili.tv")) {
+                    link.href = link.href.replace("bilibili.tv", "bilibili.com");
+                }
+                
+                link.href = this.cleanURL(link.href);
+            });
+        },
+        
+        // 查找并清理点击的链接
+        handleClick(event) {
+            let element = event.target;
+            while (element && element.tagName !== "A") {
+                element = element.parentNode;
+            }
+            if (element && element.tagName === "A") {
+                this.cleanLinks([element]);
+            }
+        },
+        
+        // 初始化URL清理功能
+        init() {
+            let locationBackup;
+            
+            // 清理地址栏
+            const cleanLocation = () => {
+                const { href } = location;
+                if (href === locationBackup) return;
+                locationBackup = this.cleanURL(href);
+                window.history.replaceState(window.history.state, "", locationBackup);
+            };
+            
+            cleanLocation();
+            
+            // 监听点击和右键事件
+            const clickHandler = (e) => this.handleClick(e);
+            window.addEventListener("click", clickHandler, true);
+            window.addEventListener("contextmenu", clickHandler, true);
+            
+            // 重写window.open
+            const originalOpen = window.open;
+            window.open = (url, name, params) => {
+                return originalOpen(this.cleanURL(url), name, params);
+            };
+        }
+    };
+    
+    // 初始化URL清理
+    URLCleaner.init();
+    
+    // ============================== CDN管理模块 ==============================
+    
+    const CDNManager = {
+        cdnList: [...INIT_CDN_LIST],
+        regionList: ['默认', '📝 自定义CDN', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'],
+        
+        // 获取自定义CDN列表
+        getCustomList() {
+            try {
+                return JSON.parse(GM_getValue(CUSTOM_CDN_STORAGE_KEY, '[]'));
+            } catch (e) {
+                return [];
+            }
+        },
+        
+        // 保存自定义CDN列表
+        saveCustomList(list) {
+            GM_setValue(CUSTOM_CDN_STORAGE_KEY, JSON.stringify(list));
+        },
+        
+        // 添加自定义CDN
+        addCustom(name, url) {
+            const list = this.getCustomList();
+            if (list.some(item => item.url === url)) {
+                return { success: false, message: '该CDN地址已存在' };
+            }
+            list.push({ name, url, id: Date.now() });
+            this.saveCustomList(list);
+            return { success: true, message: '添加成功' };
+        },
+        
+        // 删除自定义CDN
+        removeCustom(id) {
+            const list = this.getCustomList();
+            const newList = list.filter(item => item.id !== id);
+            this.saveCustomList(newList);
+            return newList;
+        },
+        
+        // 获取自定义CDN的URL列表
+        getCustomUrls() {
+            return this.getCustomList().map(item => item.url);
+        },
+        
+        // 获取当前选择的CDN节点
+        getCurrentCdn() {
+            return GM_getValue(CDN_STORAGE_KEY, this.cdnList[0] || '');
+        },
+        
+        // 获取当前选择的地区
+        getCurrentRegion() {
+            return GM_getValue(REGION_STORAGE_KEY, this.regionList[0]);
+        },
+        
+        // 判断是否启用了CDN锁定
+        isLockEnabled() {
+            return GM_getValue(CDN_LOCK_ENABLED_KEY, false);
+        },
+        
+        // 替换视频URL中的CDN域名
+        replaceCdnInUrl(url) {
+            if (!this.isLockEnabled()) return url;
+            const currentCdn = this.getCurrentCdn();
+            return url.replace(/https:\/\/[^\/]+\//, `https://${currentCdn}/`);
+        },
+        
+        // 获取地区列表
+        async fetchRegionList() {
+            const specialOptions = ['📝 自定义CDN', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'];
+            
+            try {
+                const response = await fetch(`${CDN_API_URL}/region.json`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                this.regionList = ['默认', ...specialOptions, ...data];
+                console.log('已更新地区列表:', this.regionList);
+            } catch (error) {
+                console.error('获取地区列表失败:', error);
+                this.regionList = ['默认', ...specialOptions];
+            }
+        },
+        
+        // 根据地区获取CDN列表
+        async fetchCdnListByRegion(region) {
+            try {
+                // 处理"默认"选项
+                if (region === '默认' || region === '-') {
+                    this.cdnList = [...INIT_CDN_LIST];
+                    updateCdnSelector();
+                    updateCustomCdnVisibility(false);
+                    return;
+                }
+                
+                // 处理"📝 自定义CDN"选项
+                if (region === '📝 自定义CDN') {
+                    const customUrls = this.getCustomUrls();
+                    this.cdnList = customUrls.length > 0 ? customUrls : ['暂无自定义CDN，请先添加'];
+                    updateCdnSelector();
+                    updateCustomCdnVisibility(true);
+                    console.log('已切换到自定义CDN列表:', this.cdnList);
+                    return;
+                }
+                
+                // 处理VRChat世界选项
+                if (VRCHAT_CDN_MAP[region]) {
+                    this.cdnList = [...VRCHAT_CDN_MAP[region]];
+                    updateCdnSelector();
+                    updateCustomCdnVisibility(false);
+                    console.log(`已切换到 ${region} CDN列表:`, this.cdnList);
+                    return;
+                }
+                
+                // 从API获取CDN列表
+                const response = await fetch(`${CDN_API_URL}/cdn.json`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                
+                this.cdnList = [...(data[region] || [])];
                 updateCdnSelector();
                 updateCustomCdnVisibility(false);
-                console.log(`已切换到 ${region} CDN列表:`, cdnList);
-                return;
+                console.log(`已更新 ${region} 地区的CDN列表:`, this.cdnList);
+            } catch (error) {
+                console.error(`获取 ${region} 地区CDN列表失败:`, error);
+                this.cdnList = [...INIT_CDN_LIST];
+                updateCdnSelector();
+                updateCustomCdnVisibility(false);
             }
-
-            const response = await fetch(`${CDN_API_URL}/cdn.json`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-
-            const regionData = data[region] || [];
-            cdnList = [...regionData];
-
-            updateCdnSelector();
-            updateCustomCdnVisibility(false);
-            console.log(`已更新 ${region} 地区的CDN列表:`, cdnList);
-        } catch (error) {
-            console.error(`获取 ${region} 地区CDN列表失败:`, error);
-            // 在出错时使用默认列表
-            cdnList = [...initCdnList];
-            updateCdnSelector();
-            updateCustomCdnVisibility(false);
         }
-    }
+    };
     
     // 更新自定义CDN区域的显示/隐藏
     function updateCustomCdnVisibility(show) {
@@ -403,7 +398,7 @@
         const listContainer = document.getElementById('bilijx-custom-cdn-list');
         if (!listContainer) return;
         
-        const customList = getCustomCdnList();
+        const customList = CDNManager.getCustomList();
         
         if (customList.length === 0) {
             listContainer.innerHTML = '<p style="color: #999; font-size: 12px; margin: 0;">暂无自定义CDN</p>';
@@ -422,11 +417,11 @@
             listContainer.querySelectorAll('.bilijx-custom-cdn-delete').forEach(btn => {
                 btn.addEventListener('click', function() {
                     const id = parseInt(this.dataset.id);
-                    removeCustomCdn(id);
+                    CDNManager.removeCustom(id);
                     refreshCustomCdnList();
                     // 更新CDN选择器
-                    const customUrls = getCustomCdnUrls();
-                    cdnList = customUrls.length > 0 ? customUrls : ['暂无自定义CDN，请先添加'];
+                    const customUrls = CDNManager.getCustomUrls();
+                    CDNManager.cdnList = customUrls.length > 0 ? customUrls : ['暂无自定义CDN，请先添加'];
                     updateCdnSelector();
                     showNotification('删除成功', '自定义CDN已删除', false);
                 });
@@ -438,8 +433,8 @@
     function updateCdnSelector() {
         const cdnSelect = document.getElementById('bilijx-cdn-select');
         if (cdnSelect) {
-            cdnSelect.innerHTML = cdnList.map(cdn => 
-                `<option value="${cdn}"${cdn === getCurrentCdn() ? ' selected' : ''}>${cdn}</option>`
+            cdnSelect.innerHTML = CDNManager.cdnList.map(cdn =>
+                `<option value="${cdn}"${cdn === CDNManager.getCurrentCdn() ? ' selected' : ''}>${cdn}</option>`
             ).join('');
         }
     }
@@ -590,6 +585,7 @@
             
             .bilijx-custom-cdn-inputs {
                 display: flex;
+                flex-direction: column;
                 gap: 8px;
                 margin-bottom: 12px;
             }
@@ -602,9 +598,6 @@
                 font-size: 13px;
             }
             
-            .bilijx-custom-cdn-inputs input:first-child {
-                flex: 0.4;
-            }
             
             #bilijx-add-custom-cdn {
                 padding: 8px 16px;
@@ -614,7 +607,6 @@
                 border-radius: 4px;
                 cursor: pointer;
                 font-size: 13px;
-                white-space: nowrap;
             }
             
             #bilijx-add-custom-cdn:hover {
@@ -717,7 +709,7 @@
             </div>
             
             <div id="bilijx-custom-cdn-section">
-                <h4>➕ 添加自定义CDN</h4>
+                <h4>添加自定义CDN:</h4>
                 <div class="bilijx-custom-cdn-inputs">
                     <input type="text" id="bilijx-custom-cdn-name" placeholder="名称 (如: 我的CDN)">
                     <input type="text" id="bilijx-custom-cdn-url" placeholder="CDN地址 (如: upos-xxx.bilivideo.com)">
@@ -757,14 +749,14 @@
             if (!this.dataset.loaded) {
                 this.dataset.loaded = true; // 标记为已加载，避免重复加载
 
-                await getRegionList();
+                await CDNManager.fetchRegionList();
                 const regionSelect = document.getElementById('bilijx-region-select');
                 if (regionSelect) {
-                    regionSelect.innerHTML = regionList.map(region =>
-                        `<option value="${region}" ${region === getCurrentRegion() ? 'selected' : ''}>${region}</option>`
+                    regionSelect.innerHTML = CDNManager.regionList.map(region =>
+                        `<option value="${region}" ${region === CDNManager.getCurrentRegion() ? 'selected' : ''}>${region}</option>`
                     ).join('');
                 }
-                await getCdnListByRegion(getCurrentRegion());
+                await CDNManager.fetchCdnListByRegion(CDNManager.getCurrentRegion());
             }
         });
         
@@ -782,7 +774,7 @@
         document.getElementById('bilijx-region-select').addEventListener('change', async function(e) {
             const selectedRegion = e.target.value;
             // 根据选择的地区更新CDN列表
-            await getCdnListByRegion(selectedRegion);
+            await CDNManager.fetchCdnListByRegion(selectedRegion);
         });
         
         // 添加自定义CDN按钮点击事件
@@ -813,7 +805,7 @@
             }
             
             // 添加CDN
-            const result = addCustomCdn(name, url);
+            const result = CDNManager.addCustom(name, url);
             if (result.success) {
                 // 清空输入框
                 nameInput.value = '';
@@ -821,8 +813,8 @@
                 // 刷新列表
                 refreshCustomCdnList();
                 // 更新CDN选择器
-                const customUrls = getCustomCdnUrls();
-                cdnList = customUrls.length > 0 ? customUrls : ['暂无自定义CDN，请先添加'];
+                const customUrls = CDNManager.getCustomUrls();
+                CDNManager.cdnList = customUrls.length > 0 ? customUrls : ['暂无自定义CDN，请先添加'];
                 updateCdnSelector();
                 showNotification('添加成功', `已添加CDN: ${name}`, false);
             } else {
@@ -969,79 +961,72 @@
         }
     `);
   
-    // 创建提示框元素
-    const notificationBox = document.createElement('div');
-    notificationBox.id = 'notificationBox';
-    document.body.appendChild(notificationBox);
-  
-    // 通知框自动隐藏的定时器ID
-    let notificationTimer = null;
+    // ============================== 通知管理器 ==============================
     
-    // 通用显示通知函数
-    function showNotification(title, message, isError = false, type = null) {
-        // 如果已经有通知显示中，先清除它的定时器
-        if (notificationTimer) {
-            clearTimeout(notificationTimer);
-            notificationTimer = null;
-            
-            // 如果当前通知已经显示，则先将其隐藏，添加短暂延迟后再显示新通知
-            if (notificationBox.classList.contains('show')) {
-                notificationBox.classList.remove('show');
+    const NotificationManager = {
+        box: null,
+        timer: null,
+        
+        // 初始化通知框
+        init() {
+            this.box = document.createElement('div');
+            this.box.id = 'notificationBox';
+            document.body.appendChild(this.box);
+        },
+        
+        // 显示通知
+        show(title, message, isError = false, type = null) {
+            // 如果已经有通知显示中，先清除定时器
+            if (this.timer) {
+                clearTimeout(this.timer);
+                this.timer = null;
                 
-                // 使用setTimeout延迟一小段时间再显示新通知，制造动画效果
-                setTimeout(() => showNewNotification(), 300);
-                return;
+                // 如果当前通知已显示，先隐藏再显示新通知
+                if (this.box.classList.contains('show')) {
+                    this.box.classList.remove('show');
+                    setTimeout(() => this._showNew(title, message, isError, type), 300);
+                    return;
+                }
             }
-        }
+            
+            this._showNew(title, message, isError, type);
+        },
         
-        // 直接显示新通知
-        showNewNotification();
-        
-        // 显示新通知的内部函数
-        function showNewNotification() {
-            // 移除所有可能的类型类
-            notificationBox.classList.remove('video-type', 'live-type', 'error-type');
+        // 显示新通知的内部方法
+        _showNew(title, message, isError, type) {
+            // 移除所有类型类
+            this.box.classList.remove('video-type', 'live-type', 'error-type');
             
             // 设置通知内容
-            notificationBox.innerHTML = `
+            this.box.innerHTML = `
                 <img src="${NOTIFICATION_IMAGE}" alt="通知图标" style="width: 100px; height: 100px;">
                 <h3>${title}</h3>
                 <p>${message}</p>
             `;
             
-            // 根据类型添加对应的样式类
+            // 根据类型添加样式类
             if (isError) {
-                notificationBox.classList.add('error-type');
+                this.box.classList.add('error-type');
             } else if (type === TYPE_VIDEO) {
-                notificationBox.classList.add('video-type');
+                this.box.classList.add('video-type');
             } else if (type === TYPE_LIVE) {
-                notificationBox.classList.add('live-type');
+                this.box.classList.add('live-type');
             }
             
             // 显示通知
-            notificationBox.classList.add('show');
+            this.box.classList.add('show');
             
-            // 设置定时器，自动隐藏提示框
-            notificationTimer = setTimeout(() => {
-                notificationBox.classList.remove('show');
-                notificationTimer = null;
+            // 设置自动隐藏定时器
+            this.timer = setTimeout(() => {
+                this.box.classList.remove('show');
+                this.timer = null;
             }, isError ? ERROR_TIMEOUT : NOTIFICATION_TIMEOUT);
         }
-    }
+    };
     
-    // 防抖函数
-    function debounce(func, delay) {
-        let timer = null;
-        return function(...args) {
-            if (timer) {
-                clearTimeout(timer);
-            }
-            timer = setTimeout(() => {
-                func.apply(this, args);
-                timer = null;
-            }, delay);
-        };
-    }
+    // 向后兼容的函数别名
+    const showNotification = (title, message, isError, type) =>
+        NotificationManager.show(title, message, isError, type);
     
     // 删除可能存在的所有旧按钮
     function removeOldButtons() {
@@ -1426,9 +1411,9 @@
             let videoUrl = playUrlData.data.durl[0].url;
 
             // 3. 应用CDN锁定
-            if (isCdnLockEnabled()) {
+            if (CDNManager.isLockEnabled()) {
                 const originalUrl = videoUrl;
-                videoUrl = replaceCdnInUrl(videoUrl);
+                videoUrl = CDNManager.replaceCdnInUrl(videoUrl);
                 console.log('CDN已锁定，原始URL:', originalUrl);
                 console.log('替换后URL:', videoUrl);
             }
@@ -1441,8 +1426,8 @@
                 customCallback(videoUrl);
             } else {
                 let message = '链接已复制到剪贴板';
-                if (isCdnLockEnabled()) {
-                    message += ` (已锁定CDN: ${getCurrentCdn()})`;
+                if (CDNManager.isLockEnabled()) {
+                    message += ` (已锁定CDN: ${CDNManager.getCurrentCdn()})`;
                 }
                 showNotification('视频解析成功', message, false, TYPE_VIDEO);
             }
@@ -1707,7 +1692,7 @@
                 }
                 linksToClean.push(...node.querySelectorAll('a'));
                 if (linksToClean.length > 0) {
-                    anchor(linksToClean);
+                    URLCleaner.cleanLinks(linksToClean);
                 }
             });
         });
@@ -1731,6 +1716,67 @@
         addCoverAnalysisButtons();
     }, DEBOUNCE_DELAY));
 
+    // ============================== URL变化监听 ==============================
+    
+    let lastUrl = window.location.href;
+    
+    function setupUrlChangeListener() {
+        const handleUrlChange = debounce(() => {
+            const currentUrl = window.location.href;
+            if (currentUrl === lastUrl) return;
+
+            console.log('URL已变化:', currentUrl);
+            lastUrl = currentUrl;
+
+            // 检测页面类型
+            const isCurrentLivePage = currentUrl.includes('live.bilibili.com');
+            const isCurrentVideoPage = !isCurrentLivePage &&
+                                      (currentUrl.includes('/video/') ||
+                                       currentUrl.includes('bvid='));
+
+            // 重新添加解析按钮
+            removeOldButtons();
+
+            // 根据新的页面类型创建相应的解析按钮
+            if (isCurrentVideoPage) {
+                console.log('URL变化后重新创建视频解析按钮');
+                createAnalysisButton('videoAnalysis1', true, false);
+                createAnalysisButton('videoAnalysis2', false, false);
+            } else if (isCurrentLivePage) {
+                console.log('URL变化后重新创建直播解析按钮');
+                createAnalysisButton('liveAnalysis1', true, true);
+                createAnalysisButton('liveAnalysis2', false, true);
+            }
+
+            // 延迟更新封面解析按钮，等待页面内容加载
+            setTimeout(addCoverAnalysisButtons, 500);
+
+        }, DEBOUNCE_DELAY);
+
+        // 监听浏览器前进后退
+        window.addEventListener('popstate', handleUrlChange);
+
+        // 封装并重写 history 方法
+        const wrapHistoryMethod = (method) => {
+            const original = history[method];
+            history[method] = function(...args) {
+                const result = original.apply(this, args);
+                const event = new Event(method.toLowerCase());
+                event.arguments = args;
+                window.dispatchEvent(event);
+                handleUrlChange();
+                return result;
+            };
+        };
+
+        // 重写 pushState 和 replaceState
+        wrapHistoryMethod('pushState');
+        wrapHistoryMethod('replaceState');
+    }
+    
+    // 初始化通知管理器
+    NotificationManager.init();
+    
     // 启动URL变化监听
     setupUrlChangeListener();
   })();
