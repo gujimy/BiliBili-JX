@@ -22,21 +22,21 @@
 
 (function () {
     'use strict';
-    
+
     // ============================== 常量定义 ==============================
-    
+
     // 通知相关常量 (保留类型常量供兼容性使用)
     const TYPE_VIDEO = 'video';
     const TYPE_LIVE = 'live';
     const DEBOUNCE_DELAY = 300;
-    
+
     // CDN相关常量
     const CDN_STORAGE_KEY = 'bilijx_cdn_node';
     const REGION_STORAGE_KEY = 'bilijx_region';
     const CDN_LOCK_ENABLED_KEY = 'bilijx_cdn_lock_enabled';
     const CUSTOM_CDN_STORAGE_KEY = 'bilijx_custom_cdn_list';
     const CDN_API_URL = 'https://kanda-akihito-kun.github.io/ccb/api';
-    
+
     // URL清理相关常量
     const TRACKING_PARAMS = new Set([
         'spm_id_from', 'from_source', 'msource', 'bsource', 'seid', 'source',
@@ -45,52 +45,44 @@
         'csource', 'vd_source', 'tab', 'is_story_h5', 'share_from', 'plat_id',
         '-Arouter', 'spmid',
     ]);
-    
+
+    // CDN域名常量池
+    const CDNS = {
+        ALI: 'upos-sz-mirrorali.bilivideo.com',
+        ALIOV: 'upos-sz-mirroraliov.bilivideo.com',
+        ALIB: 'upos-sz-mirroralib.bilivideo.com',
+        ALIO1: 'upos-sz-mirroralio1.bilivideo.com',
+        ALI02: 'upos-sz-mirrorali02.bilivideo.com',
+        COS: 'upos-sz-mirrorcos.bilivideo.com',
+        COSB: 'upos-sz-mirrorcosb.bilivideo.com',
+        COSO1: 'upos-sz-mirrorcoso1.bilivideo.com',
+        COSDISP: 'upos-sz-mirrorcosdisp.bilivideo.com',
+        HW: 'upos-sz-mirrorhw.bilivideo.com',
+        HWB: 'upos-sz-mirrorhwb.bilivideo.com',
+        HWO1: 'upos-sz-mirrorhwo1.bilivideo.com',
+        HWDISP: 'upos-sz-mirrorhwdisp.bilivideo.com',
+        BD: 'upos-sz-mirrorbd.bilivideo.com',
+        M08C: 'upos-sz-mirror08c.bilivideo.com',
+        M08H: 'upos-sz-mirror08h.bilivideo.com',
+        M08CT: 'upos-sz-mirror08ct.bilivideo.com',
+        ESTGCOS: 'upos-sz-estgcos.bilivideo.com',
+        ESTGOSS: 'upos-sz-estgoss.bilivideo.com',
+        ESTGHW: 'upos-sz-estghw.bilivideo.com',
+        UPCDNBDA2: 'upos-sz-upcdnbda2.bilivideo.com',
+        RALI: 'upos-sz-mirrorrali.bilivideo.com',
+    };
+
     // 初始CDN列表
-    const INIT_CDN_LIST = [
-        'upos-sz-mirrorali.bilivideo.com',
-        'upos-sz-mirroraliov.bilivideo.com',
-        'upos-sz-mirroralib.bilivideo.com',
-        'upos-sz-estgcos.bilivideo.com',
-    ];
-    
+    const INIT_CDN_LIST = [CDNS.ALI, CDNS.ALIOV, CDNS.ALIB, CDNS.ESTGCOS];
+
     // VRChat世界CDN白名单
     const VRCHAT_CDN_MAP = {
-        '🌍 VRC-中文新手教程': [
-            'upos-sz-mirrorali.bilivideo.com',
-            'upos-sz-mirroralib.bilivideo.com',
-            'upos-sz-mirroralio1.bilivideo.com',
-            'upos-sz-mirrorali02.bilivideo.com',
-            'upos-sz-estgoss.bilivideo.com',
-            'upos-sz-mirrorcos.bilivideo.com',
-            'upos-sz-mirrorcosb.bilivideo.com',
-            'upos-sz-mirrorcoso1.bilivideo.com',
-            'upos-sz-mirrorcosdisp.bilivideo.com',
-            'upos-sz-mirrorhw.bilivideo.com',
-            'upos-sz-mirrorhwb.bilivideo.com',
-            'upos-sz-mirror08ct.bilivideo.com',
-            'upos-sz-mirrorhwo1.bilivideo.com',
-            'upos-sz-mirror08c.bilivideo.com',
-            'upos-sz-mirror08h.bilivideo.com',
-            'upos-sz-mirrorbd.bilivideo.com',
-            'upos-sz-upcdnbda2.bilivideo.com',
-            'upos-sz-mirrorhwdisp.bilivideo.com',
-        ],
-        '🌍 VRC-中文吧': [
-            'upos-sz-mirrorali.bilivideo.com',
-            'upos-sz-estghw.bilivideo.com',
-            'upos-sz-mirrorbd.bilivideo.com',
-            'upos-sz-mirrorcos.bilivideo.com',
-            'upos-sz-mirror08c.bilivideo.com',
-        ],
-        '🌍 VRC-台北纯K': [
-            'upos-sz-mirrorbd.bilivideo.com',
-            'upos-sz-mirrorcos.bilivideo.com',
-            'upos-sz-mirror08c.bilivideo.com',
-            'upos-sz-mirrorali.bilivideo.com',
-        ],
+        '🌍 VRC-中文新手教程': [CDNS.ALI, CDNS.ALIB, CDNS.ALIO1, CDNS.ALI02, CDNS.ESTGOSS, CDNS.COS, CDNS.COSB, CDNS.COSO1, CDNS.COSDISP, CDNS.HW, CDNS.HWB, CDNS.M08CT, CDNS.HWO1, CDNS.M08C, CDNS.M08H, CDNS.BD, CDNS.UPCDNBDA2, CDNS.HWDISP],
+        '🌍 VRC-中文吧': [CDNS.ALI, CDNS.ESTGHW, CDNS.BD, CDNS.COS, CDNS.M08C],
+        '🌍 VRC-台北纯K': [CDNS.BD, CDNS.COS, CDNS.M08C, CDNS.ALI],
+        '🌍 栖隙居所': [CDNS.ALIO1, CDNS.ALIB, CDNS.COS, CDNS.M08C, CDNS.RALI],
     };
-    
+
     // 封面选择器
     const VIDEO_COVER_SELECTORS = [
         '.video-card a.video-card__content',
@@ -138,7 +130,7 @@
         '.season-wrap .cover',
         '.media-card .cover-container'
     ].join(',');
-    
+
     const LIVE_COVER_SELECTORS = [
         '.live-card .live-card-wrapper',
         '.live-card .cover-ctnr',
@@ -153,13 +145,13 @@
         '.live-box .cover',
         '.room-list .room-card'
     ].join(',');
-    
+
     // ============================== 工具函数 ==============================
-    
+
     // 防抖函数
     function debounce(func, delay) {
         let timer = null;
-        return function(...args) {
+        return function (...args) {
             if (timer) clearTimeout(timer);
             timer = setTimeout(() => {
                 func.apply(this, args);
@@ -167,9 +159,9 @@
             }, delay);
         };
     }
-    
+
     // ============================== URL清理模块 ==============================
-    
+
     const URLCleaner = {
         // 验证并解析URL
         parseURL(url, base) {
@@ -183,34 +175,34 @@
                 return null;
             }
         },
-        
+
         // 清理URL中的跟踪参数
         cleanURL(urlString) {
             if (!/.*:\/\/.*.bilibili.com\/.*/.test(urlString) || urlString.includes('passport.bilibili.com')) {
                 return urlString;
             }
-            
+
             const url = this.parseURL(urlString);
             if (!url) return urlString;
-            
+
             TRACKING_PARAMS.forEach(param => url.searchParams.delete(param));
             return url.toString();
         },
-        
+
         // 清理链接元素
         cleanLinks(links) {
             links.forEach(link => {
                 if (!link.href) return;
-                
+
                 // 修复失效的tv域名
                 if (link.href.includes("bilibili.tv")) {
                     link.href = link.href.replace("bilibili.tv", "bilibili.com");
                 }
-                
+
                 link.href = this.cleanURL(link.href);
             });
         },
-        
+
         // 查找并清理点击的链接
         handleClick(event) {
             let element = event.target;
@@ -221,11 +213,11 @@
                 this.cleanLinks([element]);
             }
         },
-        
+
         // 初始化URL清理功能
         init() {
             let locationBackup;
-            
+
             // 清理地址栏
             const cleanLocation = () => {
                 const { href } = location;
@@ -233,14 +225,14 @@
                 locationBackup = this.cleanURL(href);
                 window.history.replaceState(window.history.state, "", locationBackup);
             };
-            
+
             cleanLocation();
-            
+
             // 监听点击和右键事件
             const clickHandler = (e) => this.handleClick(e);
             window.addEventListener("click", clickHandler, true);
             window.addEventListener("contextmenu", clickHandler, true);
-            
+
             // 重写window.open
             const originalOpen = window.open;
             window.open = (url, name, params) => {
@@ -248,16 +240,16 @@
             };
         }
     };
-    
+
     // 初始化URL清理
     URLCleaner.init();
-    
+
     // ============================== CDN管理模块 ==============================
-    
+
     const CDNManager = {
         cdnList: [...INIT_CDN_LIST],
-        regionList: ['默认', '📝 自定义CDN', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'],
-        
+        regionList: ['默认', '📝 自定义CDN', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K', '🌍 栖隙居所'],
+
         // 获取自定义CDN列表
         getCustomList() {
             try {
@@ -266,12 +258,12 @@
                 return [];
             }
         },
-        
+
         // 保存自定义CDN列表
         saveCustomList(list) {
             GM_setValue(CUSTOM_CDN_STORAGE_KEY, JSON.stringify(list));
         },
-        
+
         // 添加自定义CDN
         addCustom(name, url) {
             const list = this.getCustomList();
@@ -282,7 +274,7 @@
             this.saveCustomList(list);
             return { success: true, message: '添加成功' };
         },
-        
+
         // 删除自定义CDN
         removeCustom(id) {
             const list = this.getCustomList();
@@ -290,38 +282,38 @@
             this.saveCustomList(newList);
             return newList;
         },
-        
+
         // 获取自定义CDN的URL列表
         getCustomUrls() {
             return this.getCustomList().map(item => item.url);
         },
-        
+
         // 获取当前选择的CDN节点
         getCurrentCdn() {
             return GM_getValue(CDN_STORAGE_KEY, this.cdnList[0] || '');
         },
-        
+
         // 获取当前选择的地区
         getCurrentRegion() {
             return GM_getValue(REGION_STORAGE_KEY, this.regionList[0]);
         },
-        
+
         // 判断是否启用了CDN锁定
         isLockEnabled() {
             return GM_getValue(CDN_LOCK_ENABLED_KEY, false);
         },
-        
+
         // 替换视频URL中的CDN域名
         replaceCdnInUrl(url) {
             if (!this.isLockEnabled()) return url;
             const currentCdn = this.getCurrentCdn();
             return url.replace(/https:\/\/[^\/]+\//, `https://${currentCdn}/`);
         },
-        
+
         // 获取地区列表
         async fetchRegionList() {
-            const specialOptions = ['📝 自定义CDN', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K'];
-            
+            const specialOptions = ['📝 自定义CDN', '🌍 VRC-中文新手教程', '🌍 VRC-中文吧', '🌍 VRC-台北纯K', '🌍 栖隙居所'];
+
             try {
                 const response = await fetch(`${CDN_API_URL}/region.json`);
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -333,7 +325,7 @@
                 this.regionList = ['默认', ...specialOptions];
             }
         },
-        
+
         // 根据地区获取CDN列表
         async fetchCdnListByRegion(region) {
             try {
@@ -344,7 +336,7 @@
                     updateCustomCdnVisibility(false);
                     return;
                 }
-                
+
                 // 处理"📝 自定义CDN"选项
                 if (region === '📝 自定义CDN') {
                     const customUrls = this.getCustomUrls();
@@ -354,7 +346,7 @@
                     console.log('已切换到自定义CDN列表:', this.cdnList);
                     return;
                 }
-                
+
                 // 处理VRChat世界选项
                 if (VRCHAT_CDN_MAP[region]) {
                     this.cdnList = [...VRCHAT_CDN_MAP[region]];
@@ -363,12 +355,12 @@
                     console.log(`已切换到 ${region} CDN列表:`, this.cdnList);
                     return;
                 }
-                
+
                 // 从API获取CDN列表
                 const response = await fetch(`${CDN_API_URL}/cdn.json`);
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
-                
+
                 this.cdnList = [...(data[region] || [])];
                 updateCdnSelector();
                 updateCustomCdnVisibility(false);
@@ -381,7 +373,7 @@
             }
         }
     };
-    
+
     // 更新自定义CDN区域的显示/隐藏
     function updateCustomCdnVisibility(show) {
         const customCdnSection = document.getElementById('bilijx-custom-cdn-section');
@@ -389,14 +381,14 @@
             customCdnSection.style.display = show ? 'block' : 'none';
         }
     }
-    
+
     // 刷新自定义CDN列表显示
     function refreshCustomCdnList() {
         const listContainer = document.getElementById('bilijx-custom-cdn-list');
         if (!listContainer) return;
-        
+
         const customList = CDNManager.getCustomList();
-        
+
         if (customList.length === 0) {
             listContainer.innerHTML = '<p style="color: #999; font-size: 12px; margin: 0;">暂无自定义CDN</p>';
         } else {
@@ -409,10 +401,10 @@
                     <button class="bilijx-custom-cdn-delete" data-id="${item.id}">×</button>
                 </div>
             `).join('');
-            
+
             // 绑定删除按钮事件
             listContainer.querySelectorAll('.bilijx-custom-cdn-delete').forEach(btn => {
-                btn.addEventListener('click', function() {
+                btn.addEventListener('click', function () {
                     const id = parseInt(this.dataset.id);
                     CDNManager.removeCustom(id);
                     refreshCustomCdnList();
@@ -425,7 +417,7 @@
             });
         }
     }
-    
+
     // 更新设置面板中的CDN选择器
     function updateCdnSelector() {
         const cdnSelect = document.getElementById('bilijx-cdn-select');
@@ -435,20 +427,20 @@
             ).join('');
         }
     }
-    
+
     // 创建设置面板
     function createSettingsPanel() {
         // 如果已经存在设置面板，则返回
         if (document.getElementById('bilijx-settings-panel')) return;
-        
+
         // 创建设置面板
         const settingsPanel = document.createElement('div');
         settingsPanel.id = 'bilijx-settings-panel';
         settingsPanel.style.display = 'none';
-        
+
         // 设置面板样式
         GM_addStyle(`#bilijx-settings-panel{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:400px;background-color:#fff;border:1px solid #ddd;border-radius:8px;z-index:10000;padding:20px}#bilijx-settings-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid #eee}#bilijx-settings-header h2{margin:0;color:#FB7299;font-size:18px}#bilijx-settings-close{cursor:pointer;font-size:20px;color:#999}#bilijx-settings-close:hover{color:#FB7299}.bilijx-settings-group{margin-bottom:15px}.bilijx-settings-group h3{margin:0 0 10px;font-size:16px;color:#333}.bilijx-settings-group select{width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;background-color:#f9f9f9;font-size:14px}.bilijx-settings-footer{display:flex;justify-content:flex-end;margin-top:20px}.bilijx-settings-footer button{padding:8px 15px;border:none;border-radius:4px;cursor:pointer;font-size:14px;margin-left:10px}#bilijx-settings-save{background-color:#FB7299;color:#fff}#bilijx-settings-save:hover{opacity:.8}#bilijx-settings-cancel{background-color:#f0f0f0;color:#666}#bilijx-settings-cancel:hover{background-color:#e0e0e0}#bilijx-main-button{position:fixed;bottom:20px;left:20px;min-width:60px;height:36px;background-color:#FB7299;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;z-index:9999;display:flex;align-items:center;justify-content:center;padding:0 12px}#bilijx-main-button:hover{opacity:.8}#bilijx-main-button:active{opacity:1}#bilijx-main-button.loading{background-color:#faa2c1}#bilijx-main-button.success{background-color:#52c41a}#bilijx-main-button.error{background-color:#ff4d4f}#bilijx-custom-cdn-section{display:none;margin-top:15px;padding:15px;background-color:#f5f5f5;border-radius:6px;border:1px dashed #ddd}#bilijx-custom-cdn-section h4{margin:0 0 12px;font-size:14px;color:#666}.bilijx-custom-cdn-inputs{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}.bilijx-custom-cdn-inputs input{flex:1;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px}#bilijx-add-custom-cdn{padding:8px 16px;background-color:#FB7299;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px}#bilijx-add-custom-cdn:hover{opacity:.8}#bilijx-custom-cdn-list{max-height:150px;overflow-y:auto}.bilijx-custom-cdn-item{display:flex;justify-content:space-between;align-items:center;padding:8px;margin-bottom:6px;background-color:#fff;border-radius:4px;border:1px solid #eee}.bilijx-custom-cdn-info{display:flex;flex-direction:column;flex:1;min-width:0}.bilijx-custom-cdn-name{font-weight:700;font-size:13px;color:#333}.bilijx-custom-cdn-url{font-size:11px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bilijx-custom-cdn-delete{width:24px;height:24px;border:none;background-color:#ff5252;color:#fff;border-radius:50%;cursor:pointer;font-size:16px;line-height:1;margin-left:8px;flex-shrink:0}.bilijx-custom-cdn-delete:hover{opacity:.8}`);
-        
+
         // 设置面板内容
         settingsPanel.innerHTML = `
             <div id="bilijx-settings-header">
@@ -505,13 +497,13 @@
                 <button id="bilijx-settings-save">保存设置</button>
             </div>
         `;
-        
+
         // 添加设置面板到页面
         document.body.appendChild(settingsPanel);
-        
+
         // 设置CDN锁定复选框的初始状态
         document.getElementById('bilijx-cdn-lock-enabled').checked = GM_getValue(CDN_LOCK_ENABLED_KEY, false);
-        
+
         // 添加设置/解析按钮
         const mainButton = document.createElement('button');
         mainButton.id = 'bilijx-main-button';
@@ -520,7 +512,7 @@
         document.body.appendChild(mainButton);
 
         // 主按钮点击事件 - 根据页面类型决定行为
-        mainButton.addEventListener('click', async function() {
+        mainButton.addEventListener('click', async function () {
             // 在视频或直播页面时执行解析
             if (window.isVideoPage) {
                 ButtonFeedback.setLoading(this);
@@ -566,30 +558,30 @@
         updateMainButtonState();
 
         // 关闭按钮点击事件
-        document.getElementById('bilijx-settings-close').addEventListener('click', function() {
+        document.getElementById('bilijx-settings-close').addEventListener('click', function () {
             document.getElementById('bilijx-settings-panel').style.display = 'none';
         });
-        
+
         // 取消按钮点击事件
-        document.getElementById('bilijx-settings-cancel').addEventListener('click', function() {
+        document.getElementById('bilijx-settings-cancel').addEventListener('click', function () {
             document.getElementById('bilijx-settings-panel').style.display = 'none';
         });
-        
+
         // 地区选择变化事件
-        document.getElementById('bilijx-region-select').addEventListener('change', async function(e) {
+        document.getElementById('bilijx-region-select').addEventListener('change', async function (e) {
             const selectedRegion = e.target.value;
             // 根据选择的地区更新CDN列表
             await CDNManager.fetchCdnListByRegion(selectedRegion);
         });
-        
+
         // 添加自定义CDN按钮点击事件
-        document.getElementById('bilijx-add-custom-cdn').addEventListener('click', function() {
+        document.getElementById('bilijx-add-custom-cdn').addEventListener('click', function () {
             const nameInput = document.getElementById('bilijx-custom-cdn-name');
             const urlInput = document.getElementById('bilijx-custom-cdn-url');
-            
+
             const name = nameInput.value.trim();
             let url = urlInput.value.trim();
-            
+
             // 验证输入
             if (!name) {
                 showNotification('添加失败', '请输入CDN名称', true);
@@ -599,16 +591,16 @@
                 showNotification('添加失败', '请输入CDN地址', true);
                 return;
             }
-            
+
             // 处理URL格式 - 移除协议头和尾部斜杠
             url = url.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-            
+
             // 验证URL格式
             if (!url.includes('.')) {
                 showNotification('添加失败', '请输入有效的CDN地址', true);
                 return;
             }
-            
+
             // 添加CDN
             const result = CDNManager.addCustom(name, url);
             if (result.success) {
@@ -626,33 +618,33 @@
                 showNotification('添加失败', result.message, true);
             }
         });
-        
+
         // 初始化自定义CDN列表显示
         refreshCustomCdnList();
-        
+
         // 保存按钮点击事件
-        document.getElementById('bilijx-settings-save').addEventListener('click', function() {
+        document.getElementById('bilijx-settings-save').addEventListener('click', function () {
             // 获取选择的值
             const cdnLockEnabled = document.getElementById('bilijx-cdn-lock-enabled').checked;
             const selectedRegion = document.getElementById('bilijx-region-select').value;
             const selectedCdn = document.getElementById('bilijx-cdn-select').value;
-            
+
             // 保存设置
             GM_setValue(CDN_LOCK_ENABLED_KEY, cdnLockEnabled);
             GM_setValue(REGION_STORAGE_KEY, selectedRegion);
             GM_setValue(CDN_STORAGE_KEY, selectedCdn);
-            
+
             // 显示保存成功提示
             showNotification('设置已保存', '新的CDN设置将在下次解析时生效', false);
-            
+
             // 关闭设置面板
             document.getElementById('bilijx-settings-panel').style.display = 'none';
         });
     }
-    
+
     // 添加按钮样式
     GM_addStyle(`:root{--video-color:rgb(0,174,236);--video-color-transparent:rgba(0,174,236,0.8);--live-color:#FB7299;--live-color-transparent:rgba(251,114,153,0.8);--success-color:#52c41a;--error-color:#ff4d4f}@keyframes bilijx-spin{to{transform:rotate(360deg)}}.cover-analysis-btn{position:absolute;bottom:10px;right:10px;color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:16px;font-weight:700;cursor:pointer;z-index:100;opacity:0;transition:opacity .2s ease}*:hover>.cover-analysis-btn{opacity:1}.cover-analysis-btn.loading{pointer-events:none;opacity:.7}.cover-analysis-btn.success{background:var(--success-color)!important}.cover-analysis-btn.error{background:var(--error-color)!important}.video-cover-analysis-btn{background:var(--video-color-transparent)}.video-cover-analysis-btn:hover{background:var(--video-color)}.live-cover-analysis-btn{background:var(--live-color-transparent)}.live-cover-analysis-btn:hover{background:var(--live-color)}`);
-  
+
     // ============================== 按钮反馈管理器 ==============================
 
     const ButtonFeedback = {
@@ -725,12 +717,12 @@
         // 同时也输出到控制台作为备用
         console.log(isError ? `❌ ${title}: ${message}` : `✅ ${title}: ${message}`);
     };
-    
+
     // 删除可能存在的所有旧按钮
     function removeOldButtons() {
         // 旧按钮ID列表
         const oldButtonIds = ['BiliAnalysis', 'BiliAnalysis1'];
-        
+
         // 移除旧按钮
         oldButtonIds.forEach(id => {
             const oldButton = document.getElementById(id);
@@ -739,14 +731,14 @@
             }
         });
     }
-  
+
     // 检测页面类型
     window.isLivePage = window.location.hostname === 'live.bilibili.com' ||
-                        window.location.href.includes('live.bilibili.com');
+        window.location.href.includes('live.bilibili.com');
     window.isVideoPage = !window.isLivePage &&
-                         (window.location.href.includes('/video/') ||
-                          window.location.href.includes('bvid='));
-    
+        (window.location.href.includes('/video/') ||
+            window.location.href.includes('bvid='));
+
     // 移除旧按钮
     removeOldButtons();
 
@@ -757,7 +749,7 @@
         // 直播封面
         addLiveCoverButtons();
     }
-    
+
     // 视频封面选择器缓存 (已合并为单一字符串以提高性能)
     const videoCoverSelector = [
         // 首页、分区推荐
@@ -835,7 +827,7 @@
         '.live-box .cover',
         '.room-list .room-card'
     ].join(',');
-    
+
     // 添加视频封面按钮
     function addVideoCoverButtons() {
         // 使用合并后的选择器查找所有可能的视频封面
@@ -846,7 +838,7 @@
             document.querySelectorAll('a').forEach(linkElement => {
                 const href = linkElement.href || '';
                 // 确保链接包含视频ID、包含图片元素、没有已经添加的按钮、不是标题元素
-                if ((href.includes('/video/BV') || href.includes('bvid=')) && 
+                if ((href.includes('/video/BV') || href.includes('bvid=')) &&
                     linkElement.querySelector('img') && // 必须有图片才算封面
                     !linkElement.querySelector('.video-cover-analysis-btn') &&
                     !isLikelyTitleElement(linkElement)) {
@@ -856,7 +848,7 @@
         } catch (e) {
             console.error('Error processing link elements:', e);
         }
-        
+
         // 专门处理历史记录页面
         if (window.location.href.includes('/history')) {
             try {
@@ -872,7 +864,7 @@
             }
         }
     }
-    
+
     // 添加直播封面按钮
     function addLiveCoverButtons() {
         // 使用合并后的选择器查找所有可能的直播封面
@@ -882,8 +874,8 @@
         try {
             document.querySelectorAll('a').forEach(linkElement => {
                 const href = linkElement.href || '';
-                if (href.includes('live.bilibili.com') && 
-                    linkElement.querySelector('img') && 
+                if (href.includes('live.bilibili.com') &&
+                    linkElement.querySelector('img') &&
                     !linkElement.querySelector('.live-cover-analysis-btn')) {
                     processLiveElement(linkElement);
                 }
@@ -892,7 +884,7 @@
             console.error('Error processing live link elements:', e);
         }
     }
-    
+
     // 使用单一选择器字符串处理元素 (性能优化)
     function processElementsBySelector(selector, processor) {
         try {
@@ -901,37 +893,37 @@
             console.error('Error processing selector:', selector, e);
         }
     }
-    
+
     // 判断元素是否可能是标题元素
     function isLikelyTitleElement(element) {
         // 判断元素类名是否包含"title"
         if (element.className.toLowerCase().includes('title')) return true;
-        
+
         // 判断父元素或祖先元素是否包含"title"类
         let parent = element.parentElement;
         for (let i = 0; i < 3 && parent; i++) { // 只检查3层父元素
             if (parent.className.toLowerCase().includes('title')) return true;
             parent = parent.parentElement;
         }
-        
+
         // 检查元素内部文本长度，标题通常较长
         const textContent = element.textContent.trim();
         if (textContent.length > 10 && !element.querySelector('img')) return true;
-        
+
         // 检查标签结构，通常标题不会是图片的容器
         if (element.querySelector('img') && element.children.length === 1) return false;
-        
+
         // 检查是否为h1-h6标签
         const tagName = element.tagName.toLowerCase();
         if (tagName.match(/h[1-6]/)) return true;
-        
+
         return false;
     }
-    
+
     // 从链接中提取ID的通用函数
     function extractIdFromLink(link, isLive) {
         if (!link) return null;
-        
+
         if (isLive) {
             // 提取直播房间ID
             if (link.includes('live.bilibili.com')) {
@@ -948,10 +940,10 @@
                 return match ? match[1] : null;
             }
         }
-        
+
         return null;
     }
-    
+
     // 创建封面解析按钮的通用函数
     function createCoverButton(element, id, isLive, clickHandler) {
         // 设置封面元素为相对定位，以便放置解析按钮
@@ -966,7 +958,7 @@
         analysisBtn.dataset.id = id;
 
         // 添加点击事件
-        analysisBtn.addEventListener('click', function(e) {
+        analysisBtn.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
             // 设置加载状态
@@ -980,49 +972,49 @@
 
         return analysisBtn;
     }
-    
+
     // 处理单个视频元素
     function processVideoElement(coverElement) {
         // 检查是否已经添加过按钮
         if (coverElement.querySelector('.video-cover-analysis-btn')) return;
-        
+
         // 忽略明显是标题的元素
         if (isLikelyTitleElement(coverElement)) return;
-        
+
         // 获取视频链接
         const videoLink = coverElement.href || coverElement.getAttribute('href');
         if (!videoLink || (!videoLink.includes('bilibili.com/video') && !videoLink.includes('bvid='))) return;
-        
+
         // 从链接中提取BV号
         const bvid = extractIdFromLink(videoLink, false);
         if (!bvid) return;
-        
+
         // 确认元素包含图片才是封面
         if (!coverElement.querySelector('img')) return;
-        
+
         // 创建解析按钮
         createCoverButton(coverElement, bvid, false, analysisVideo);
     }
-    
+
     // 处理直播封面元素
     function processLiveElement(coverElement) {
         // 检查是否已经添加过按钮
         if (coverElement.querySelector('.live-cover-analysis-btn')) return;
-        
+
         // 获取直播链接
-        const liveLink = coverElement.href || coverElement.getAttribute('href') || 
-                        (coverElement.querySelector('a') ? coverElement.querySelector('a').href : '');
-        
+        const liveLink = coverElement.href || coverElement.getAttribute('href') ||
+            (coverElement.querySelector('a') ? coverElement.querySelector('a').href : '');
+
         if (!liveLink || !liveLink.includes('live.bilibili.com')) return;
-        
+
         // 从链接中提取房间号
         const roomId = extractIdFromLink(liveLink, true);
         if (!roomId) return;
-        
+
         // 创建直播解析按钮
         createCoverButton(coverElement, roomId, true, analysisLiveCover);
     }
-    
+
     // 通用视频解析函数 (已使用 async/await 重构)
     async function getVideoUrl(bvid, p = 1, customCallback = null) {
         if (!bvid) {
@@ -1100,7 +1092,7 @@
     // 封面按钮点击解析视频
     function analysisVideo(bvid, button) {
         // 调用通用视频解析函数，默认P1
-        getVideoUrl(bvid, 1, function(videoUrl) {
+        getVideoUrl(bvid, 1, function (videoUrl) {
             if (button) ButtonFeedback.setSuccess(button, '✓');
         });
     }
@@ -1110,7 +1102,7 @@
         // 调用直播解析函数
         analysisLive(roomId, button);
     }
-    
+
     // 从当前页面获取视频BV号的健壮性函数
     function getCurrentBvid() {
         const url = window.location.href;
@@ -1175,7 +1167,7 @@
         // 直接调用通用视频解析函数
         getVideoUrl(bvid, p);
     }
-    
+
     // 直播页面的解析按钮点击事件
     function clickLiveAnalysis(event) {
         const button = event.currentTarget;
@@ -1207,7 +1199,7 @@
             }
         }
     }
-    
+
     // 直播解析函数 (已使用 async/await 重构)
     async function analysisLive(roomId, button) {
         if (!roomId) return;
@@ -1283,15 +1275,15 @@
         console.log(`直播流地址 (${format}):`, streamUrl);
         if (button) ButtonFeedback.setSuccess(button, '✓');
     }
-    
+
     // 从响应中提取直播流地址
     function getLiveStreamUrl(response) {
         if (!response || !response.data || !response.data.playurl_info || !response.data.playurl_info.playurl || !response.data.playurl_info.playurl.stream) {
             return null;
         }
-        
+
         const streams = response.data.playurl_info.playurl.stream;
-        
+
         // 优先尝试获取HLS格式 (m3u8)
         // Stream[1]通常是http-hls或http-fmp4
         if (streams.length > 1) {
@@ -1308,7 +1300,7 @@
                 }
             }
         }
-        
+
         // 如果没有HLS，尝试FLV格式
         // 通常在Stream[0]中
         if (streams.length > 0) {
@@ -1325,7 +1317,7 @@
                 }
             }
         }
-        
+
         // 如果以上都失败，尝试任何可用的流
         for (const stream of streams) {
             if (stream.format && stream.format.length > 0) {
@@ -1339,20 +1331,20 @@
                 }
             }
         }
-        
+
         return null;
     }
-    
+
     // 旧的回退函数已被整合到新的 analysisLive 函数中，可以安全移除
-    
+
     // 初始执行一次
     addCoverAnalysisButtons();
-    
+
     // 创建设置面板
     createSettingsPanel();
-    
+
     // 使用统一的MutationObserver监听所有DOM变化
-    const observer = new MutationObserver(debounce(function(mutations) {
+    const observer = new MutationObserver(debounce(function (mutations) {
         // 1. 清理动态加载内容中的链接
         mutations.forEach(mutation => {
             mutation.addedNodes.forEach(node => {
@@ -1378,9 +1370,9 @@
         childList: true,
         subtree: true
     });
-    
+
     // 在页面滚动时也检查新加载的视频
-    window.addEventListener('scroll', debounce(function() {
+    window.addEventListener('scroll', debounce(function () {
         // 移除可能重新出现的旧按钮
         removeOldButtons();
         // 添加封面解析按钮
@@ -1388,9 +1380,9 @@
     }, DEBOUNCE_DELAY));
 
     // ============================== URL变化监听 ==============================
-    
+
     let lastUrl = window.location.href;
-    
+
     function setupUrlChangeListener() {
         const handleUrlChange = debounce(() => {
             const currentUrl = window.location.href;
@@ -1402,8 +1394,8 @@
             // 检测页面类型
             const isCurrentLivePage = currentUrl.includes('live.bilibili.com');
             const isCurrentVideoPage = !isCurrentLivePage &&
-                                      (currentUrl.includes('/video/') ||
-                                       currentUrl.includes('bvid='));
+                (currentUrl.includes('/video/') ||
+                    currentUrl.includes('bvid='));
 
             // 更新全局页面类型变量
             window.isLivePage = isCurrentLivePage;
@@ -1435,7 +1427,7 @@
         // 封装并重写 history 方法
         const wrapHistoryMethod = (method) => {
             const original = history[method];
-            history[method] = function(...args) {
+            history[method] = function (...args) {
                 const result = original.apply(this, args);
                 const event = new Event(method.toLowerCase());
                 event.arguments = args;
@@ -1449,8 +1441,7 @@
         wrapHistoryMethod('pushState');
         wrapHistoryMethod('replaceState');
     }
-    
+
     // 启动URL变化监听
     setupUrlChangeListener();
-  })();
-  
+})();
