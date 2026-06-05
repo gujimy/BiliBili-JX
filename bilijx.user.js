@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BiliBili 视频解析脚本(增强型)
 // @namespace    https://bbs.tampermonkey.net.cn/
-// @version      2.5.2
+// @version      2.5.3
 // @description  只因你实在是太美 Baby!
 // @author       laomo
 // @match        https://www.bilibili.com/*
@@ -11,7 +11,6 @@
 // @match        https://live.bilibili.com/*
 // @downloadURL  https://raw.githubusercontent.com/gujimy/BiliBili-JX/main/bilijx.user.js
 // @updateURL    https://raw.githubusercontent.com/gujimy/BiliBili-JX/main/bilijx.user.js
-// @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -25,9 +24,6 @@
 
     // ============================== 常量定义 ==============================
 
-    // 通知相关常量 (保留类型常量供兼容性使用)
-    const TYPE_VIDEO = 'video';
-    const TYPE_LIVE = 'live';
     const DEBOUNCE_DELAY = 300;
 
     // CDN相关常量
@@ -82,69 +78,6 @@
         '🌍 VRC-台北纯K': [CDNS.BD, CDNS.COS, CDNS.M08C, CDNS.ALI],
         '🌍 栖隙居所': [CDNS.ALIO1, CDNS.ALIB, CDNS.COS, CDNS.M08C, CDNS.RALI],
     };
-
-    // 封面选择器
-    const VIDEO_COVER_SELECTORS = [
-        '.video-card a.video-card__content',
-        '.bili-video-card__wrap a.bili-video-card__image--link',
-        '.bili-video-card .bili-video-card__image > a',
-        '.bili-video-card__wrap > a',
-        '.video-item .bili-video-card__wrap a',
-        '.search-card .video-card__content',
-        '.search-card .bili-video-card__image--link',
-        '.search-card__content .bili-video-card__image--link',
-        '.search-card__info .bili-video-card__image--link',
-        'a.cover',
-        '.cover-normal',
-        '.cover > a',
-        '.upuser-video-card__content',
-        '.small-item .cover-container',
-        '.small-cover__content',
-        '.video-content .cover-container',
-        '.video-page-card-small',
-        '.video-page-card',
-        '.rec-list .video-card-reco',
-        '.card-box .video-card-common',
-        '.aside-panel-main a.pic-box',
-        '.video-list-item .video-cover',
-        '.card-box .pic',
-        '.rank-item .content-wrap',
-        '.rank-wrap .info-box',
-        '.storey-box .spread-module',
-        '.spread-item a.pic',
-        '.channel-list .channel-item',
-        '.video-container .bili-video-card',
-        '.bili-dyn-item a.bili-video-card__cover',
-        '.bili-dyn-card-video__wrap',
-        '.bili-dyn-content .bili-dyn-card-video',
-        '.history-wrap .cover-contain',
-        '.history-wrap .video-card__content',
-        '.history-wrap .history-card',
-        '.history-wrap .card-box .pic',
-        '.history-wrap .bili-video-card__image--link',
-        '.history-list .history-card .pic-box',
-        '.history-list .cover a',
-        '.bangumi-card .cover-box',
-        '.bangumi-card-media .media-cover',
-        '.bangumi-list .cover',
-        '.season-wrap .cover',
-        '.media-card .cover-container'
-    ].join(',');
-
-    const LIVE_COVER_SELECTORS = [
-        '.live-card .live-card-wrapper',
-        '.live-card .cover-ctnr',
-        '.live-card .cover',
-        '.room-card .cover-ctnr',
-        '.room-card-wrapper .room-cover',
-        '.bili-live-card__cover',
-        '.bili-live-card__wrap',
-        '.bili-dyn-live-card',
-        '.bili-video-card__wrap .bili-live-card',
-        'a[href*="live.bilibili.com"]',
-        '.live-box .cover',
-        '.room-list .room-card'
-    ].join(',');
 
     // ============================== 工具函数 ==============================
 
@@ -382,30 +315,58 @@
         }
     }
 
+    // 安全渲染下拉选项
+    function renderOptions(selectElement, options, selectedValue) {
+        if (!selectElement) return;
+
+        selectElement.replaceChildren();
+        options.forEach(value => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value;
+            option.selected = value === selectedValue;
+            selectElement.appendChild(option);
+        });
+    }
+
     // 刷新自定义CDN列表显示
     function refreshCustomCdnList() {
         const listContainer = document.getElementById('bilijx-custom-cdn-list');
         if (!listContainer) return;
 
         const customList = CDNManager.getCustomList();
+        listContainer.replaceChildren();
 
         if (customList.length === 0) {
-            listContainer.innerHTML = '<p style="color: #999; font-size: 12px; margin: 0;">暂无自定义CDN</p>';
+            const emptyText = document.createElement('p');
+            emptyText.style.color = '#999';
+            emptyText.style.fontSize = '12px';
+            emptyText.style.margin = '0';
+            emptyText.textContent = '暂无自定义CDN';
+            listContainer.appendChild(emptyText);
         } else {
-            listContainer.innerHTML = customList.map(item => `
-                <div class="bilijx-custom-cdn-item" data-id="${item.id}">
-                    <div class="bilijx-custom-cdn-info">
-                        <span class="bilijx-custom-cdn-name">${item.name}</span>
-                        <span class="bilijx-custom-cdn-url">${item.url}</span>
-                    </div>
-                    <button class="bilijx-custom-cdn-delete" data-id="${item.id}">×</button>
-                </div>
-            `).join('');
+            customList.forEach(item => {
+                const itemElement = document.createElement('div');
+                itemElement.className = 'bilijx-custom-cdn-item';
+                itemElement.dataset.id = String(item.id);
 
-            // 绑定删除按钮事件
-            listContainer.querySelectorAll('.bilijx-custom-cdn-delete').forEach(btn => {
-                btn.addEventListener('click', function () {
-                    const id = parseInt(this.dataset.id);
+                const infoElement = document.createElement('div');
+                infoElement.className = 'bilijx-custom-cdn-info';
+
+                const nameElement = document.createElement('span');
+                nameElement.className = 'bilijx-custom-cdn-name';
+                nameElement.textContent = item.name;
+
+                const urlElement = document.createElement('span');
+                urlElement.className = 'bilijx-custom-cdn-url';
+                urlElement.textContent = item.url;
+
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'bilijx-custom-cdn-delete';
+                deleteButton.dataset.id = String(item.id);
+                deleteButton.textContent = '×';
+                deleteButton.addEventListener('click', function () {
+                    const id = parseInt(this.dataset.id, 10);
                     CDNManager.removeCustom(id);
                     refreshCustomCdnList();
                     // 更新CDN选择器
@@ -414,6 +375,10 @@
                     updateCdnSelector();
                     showNotification('删除成功', '自定义CDN已删除', false);
                 });
+
+                infoElement.append(nameElement, urlElement);
+                itemElement.append(infoElement, deleteButton);
+                listContainer.appendChild(itemElement);
             });
         }
     }
@@ -421,11 +386,7 @@
     // 更新设置面板中的CDN选择器
     function updateCdnSelector() {
         const cdnSelect = document.getElementById('bilijx-cdn-select');
-        if (cdnSelect) {
-            cdnSelect.innerHTML = CDNManager.cdnList.map(cdn =>
-                `<option value="${cdn}"${cdn === CDNManager.getCurrentCdn() ? ' selected' : ''}>${cdn}</option>`
-            ).join('');
-        }
+        renderOptions(cdnSelect, CDNManager.cdnList, CDNManager.getCurrentCdn());
     }
 
     // 创建设置面板
@@ -533,11 +494,7 @@
 
                     await CDNManager.fetchRegionList();
                     const regionSelect = document.getElementById('bilijx-region-select');
-                    if (regionSelect) {
-                        regionSelect.innerHTML = CDNManager.regionList.map(region =>
-                            `<option value="${region}" ${region === CDNManager.getCurrentRegion() ? 'selected' : ''}>${region}</option>`
-                        ).join('');
-                    }
+                    renderOptions(regionSelect, CDNManager.regionList, CDNManager.getCurrentRegion());
                     await CDNManager.fetchCdnListByRegion(CDNManager.getCurrentRegion());
                 }
             }
@@ -648,70 +605,80 @@
     // ============================== 按钮反馈管理器 ==============================
 
     const ButtonFeedback = {
+        states: new WeakMap(),
         currentButton: null,
-        originalText: '',
-        timer: null,
 
         // 设置加载状态
         setLoading(button) {
-            this.clear();
+            this.reset(button);
+            this.states.set(button, {
+                originalText: button.innerText.trim(),
+                timer: null
+            });
             this.currentButton = button;
-            this.originalText = button.innerText.trim();
+            button.classList.remove('success', 'error');
             button.classList.add('loading');
             button.innerText = '解析中';
         },
 
         // 设置成功状态
         setSuccess(button, message = '✓') {
-            this.clear();
-            this.currentButton = button;
+            const state = this.getState(button);
+            if (state.timer) clearTimeout(state.timer);
             button.classList.remove('loading', 'error');
             button.classList.add('success');
             button.innerText = message;
 
             // 3秒后恢复
-            this.timer = setTimeout(() => this.reset(button), 3000);
+            state.timer = setTimeout(() => this.reset(button), 3000);
+            this.states.set(button, state);
         },
 
         // 设置错误状态
         setError(button, message = '✕') {
-            this.clear();
-            this.currentButton = button;
+            const state = this.getState(button);
+            if (state.timer) clearTimeout(state.timer);
             button.classList.remove('loading', 'success');
             button.classList.add('error');
             button.innerText = message;
 
             // 3秒后恢复
-            this.timer = setTimeout(() => this.reset(button), 3000);
+            state.timer = setTimeout(() => this.reset(button), 3000);
+            this.states.set(button, state);
         },
 
-        // 清除当前状态
-        clear() {
-            if (this.timer) {
-                clearTimeout(this.timer);
-                this.timer = null;
-            }
-            if (this.currentButton) {
-                this.reset(this.currentButton);
-                this.currentButton = null;
-            }
+        // 获取按钮状态
+        getState(button) {
+            return this.states.get(button) || {
+                originalText: button.innerText.trim(),
+                timer: null
+            };
         },
 
         // 恢复按钮原始状态
         reset(button) {
+            const state = this.states.get(button);
+            if (state && state.timer) clearTimeout(state.timer);
             button.classList.remove('loading', 'success', 'error');
-            button.innerText = this.originalText;
+            if (state) {
+                button.innerText = state.originalText;
+                this.states.delete(button);
+            }
+            if (this.currentButton === button) {
+                this.currentButton = null;
+            }
         }
     };
 
     // 向后兼容的函数别名 - 但现在作用于按钮
     const showNotification = (title, message, isError, type) => {
         // 如果有当前活动的按钮，在按钮上显示反馈
-        if (ButtonFeedback.currentButton) {
+        const activeButton = ButtonFeedback.currentButton;
+        if (activeButton) {
             if (isError) {
-                ButtonFeedback.setError(ButtonFeedback.currentButton, '失败');
+                ButtonFeedback.setError(activeButton, '失败');
             } else {
-                ButtonFeedback.setSuccess(ButtonFeedback.currentButton, '✓');
+                ButtonFeedback.setSuccess(activeButton, '✓');
             }
         }
         // 同时也输出到控制台作为备用
@@ -743,11 +710,11 @@
     removeOldButtons();
 
     // 添加视频封面解析按钮的函数
-    function addCoverAnalysisButtons() {
+    function addCoverAnalysisButtons(root = document) {
         // 视频封面
-        addVideoCoverButtons();
+        addVideoCoverButtons(root);
         // 直播封面
-        addLiveCoverButtons();
+        addLiveCoverButtons(root);
     }
 
     // 视频封面选择器缓存 (已合并为单一字符串以提高性能)
@@ -800,6 +767,8 @@
         '.history-wrap .bili-video-card__image--link',
         '.history-list .history-card .pic-box',
         '.history-list .cover a',
+        // 首页顶部收藏弹窗
+        '.favorite-panel-popover .header-fav-card',
         // 番剧、影视
         '.bangumi-card .cover-box',
         '.bangumi-card-media .media-cover',
@@ -829,18 +798,17 @@
     ].join(',');
 
     // 添加视频封面按钮
-    function addVideoCoverButtons() {
+    function addVideoCoverButtons(root = document) {
         // 使用合并后的选择器查找所有可能的视频封面
-        processElementsBySelector(videoCoverSelector, processVideoElement);
+        processElementsBySelector(videoCoverSelector, processVideoElement, root);
 
         // 尝试查找所有a标签，但必须包含图片元素才添加按钮
         try {
-            document.querySelectorAll('a').forEach(linkElement => {
+            getElementsBySelector('a', root).forEach(linkElement => {
                 const href = linkElement.href || '';
                 // 确保链接包含视频ID、包含图片元素、没有已经添加的按钮、不是标题元素
                 if ((href.includes('/video/BV') || href.includes('bvid=')) &&
                     linkElement.querySelector('img') && // 必须有图片才算封面
-                    !linkElement.querySelector('.video-cover-analysis-btn') &&
                     !isLikelyTitleElement(linkElement)) {
                     processVideoElement(linkElement);
                 }
@@ -850,7 +818,7 @@
         }
 
         // 专门处理历史记录页面
-        if (window.location.href.includes('/history')) {
+        if (root === document && window.location.href.includes('/history')) {
             try {
                 // 处理历史记录页特殊结构
                 document.querySelectorAll('.history-list .history-card').forEach(card => {
@@ -866,17 +834,16 @@
     }
 
     // 添加直播封面按钮
-    function addLiveCoverButtons() {
+    function addLiveCoverButtons(root = document) {
         // 使用合并后的选择器查找所有可能的直播封面
-        processElementsBySelector(liveCoverSelector, processLiveElement);
+        processElementsBySelector(liveCoverSelector, processLiveElement, root);
 
         // 尝试查找所有包含直播链接的a标签
         try {
-            document.querySelectorAll('a').forEach(linkElement => {
+            getElementsBySelector('a', root).forEach(linkElement => {
                 const href = linkElement.href || '';
                 if (href.includes('live.bilibili.com') &&
-                    linkElement.querySelector('img') &&
-                    !linkElement.querySelector('.live-cover-analysis-btn')) {
+                    linkElement.querySelector('img')) {
                     processLiveElement(linkElement);
                 }
             });
@@ -885,13 +852,45 @@
         }
     }
 
+    // 获取根节点自身和子节点中匹配选择器的元素
+    function getElementsBySelector(selector, root = document) {
+        const elements = [];
+        if (root.nodeType === 1 && root.matches(selector)) {
+            elements.push(root);
+        }
+        if (root.querySelectorAll) {
+            elements.push(...root.querySelectorAll(selector));
+        }
+        return elements;
+    }
+
     // 使用单一选择器字符串处理元素 (性能优化)
-    function processElementsBySelector(selector, processor) {
+    function processElementsBySelector(selector, processor, root = document) {
         try {
-            document.querySelectorAll(selector).forEach(processor);
+            getElementsBySelector(selector, root).forEach(processor);
         } catch (e) {
             console.error('Error processing selector:', selector, e);
         }
+    }
+
+    // 从元素自身、祖先或子元素中获取目标链接
+    function getElementLink(element, isLive) {
+        if (!element) return '';
+
+        const directLink = element.href || element.getAttribute('href');
+        if (directLink) return directLink;
+
+        const selector = isLive
+            ? 'a[href*="live.bilibili.com"]'
+            : 'a[href*="/video/"], a[href*="bvid="]';
+
+        const closestLink = element.closest ? element.closest(selector) : null;
+        if (closestLink) {
+            return closestLink.href || closestLink.getAttribute('href') || '';
+        }
+
+        const childLink = element.querySelector ? element.querySelector(selector) : null;
+        return childLink ? (childLink.href || childLink.getAttribute('href') || '') : '';
     }
 
     // 判断元素是否可能是标题元素
@@ -956,6 +955,7 @@
         analysisBtn.className = `cover-analysis-btn ${isLive ? 'live-cover-analysis-btn' : 'video-cover-analysis-btn'}`;
         analysisBtn.innerText = isLive ? '直播解析' : '解析';
         analysisBtn.dataset.id = id;
+        analysisBtn.dataset.isLive = isLive ? '1' : '0';
 
         // 添加点击事件
         analysisBtn.addEventListener('click', function (e) {
@@ -963,8 +963,13 @@
             e.stopPropagation();
             // 设置加载状态
             ButtonFeedback.setLoading(this);
+            const currentLink = getElementLink(this, isLive) || getElementLink(element, isLive);
+            const currentId = extractIdFromLink(currentLink, isLive) || this.dataset.id;
+            if (currentId) {
+                this.dataset.id = currentId;
+            }
             // 调用原始处理函数，传入按钮引用
-            clickHandler(this.dataset.id, this);
+            clickHandler(currentId, this);
         });
 
         // 添加按钮到封面
@@ -975,14 +980,11 @@
 
     // 处理单个视频元素
     function processVideoElement(coverElement) {
-        // 检查是否已经添加过按钮
-        if (coverElement.querySelector('.video-cover-analysis-btn')) return;
-
         // 忽略明显是标题的元素
         if (isLikelyTitleElement(coverElement)) return;
 
         // 获取视频链接
-        const videoLink = coverElement.href || coverElement.getAttribute('href');
+        const videoLink = getElementLink(coverElement, false);
         if (!videoLink || (!videoLink.includes('bilibili.com/video') && !videoLink.includes('bvid='))) return;
 
         // 从链接中提取BV号
@@ -992,18 +994,21 @@
         // 确认元素包含图片才是封面
         if (!coverElement.querySelector('img')) return;
 
+        // 收藏弹窗等动态区域会复用DOM节点，已存在的按钮也要同步最新BV号
+        const existingButton = coverElement.querySelector('.video-cover-analysis-btn');
+        if (existingButton) {
+            existingButton.dataset.id = bvid;
+            return;
+        }
+
         // 创建解析按钮
         createCoverButton(coverElement, bvid, false, analysisVideo);
     }
 
     // 处理直播封面元素
     function processLiveElement(coverElement) {
-        // 检查是否已经添加过按钮
-        if (coverElement.querySelector('.live-cover-analysis-btn')) return;
-
         // 获取直播链接
-        const liveLink = coverElement.href || coverElement.getAttribute('href') ||
-            (coverElement.querySelector('a') ? coverElement.querySelector('a').href : '');
+        const liveLink = getElementLink(coverElement, true);
 
         if (!liveLink || !liveLink.includes('live.bilibili.com')) return;
 
@@ -1011,14 +1016,23 @@
         const roomId = extractIdFromLink(liveLink, true);
         if (!roomId) return;
 
+        // 动态区域复用DOM节点时，同步最新房间号
+        const existingButton = coverElement.querySelector('.live-cover-analysis-btn');
+        if (existingButton) {
+            existingButton.dataset.id = roomId;
+            return;
+        }
+
         // 创建直播解析按钮
         createCoverButton(coverElement, roomId, true, analysisLiveCover);
     }
 
     // 通用视频解析函数 (已使用 async/await 重构)
     async function getVideoUrl(bvid, p = 1, customCallback = null) {
+        const activeButton = ButtonFeedback.currentButton;
+
         if (!bvid) {
-            if (ButtonFeedback.currentButton) ButtonFeedback.setError(ButtonFeedback.currentButton, '失败');
+            if (activeButton) ButtonFeedback.setError(activeButton, '失败');
             return;
         }
 
@@ -1031,7 +1045,7 @@
             if (match) {
                 bvid = match[0];
             } else {
-                if (ButtonFeedback.currentButton) ButtonFeedback.setError(ButtonFeedback.currentButton, '失败');
+                if (activeButton) ButtonFeedback.setError(activeButton, '失败');
                 return;
             }
         }
@@ -1080,12 +1094,12 @@
             if (customCallback) {
                 customCallback(videoUrl);
             } else {
-                if (ButtonFeedback.currentButton) ButtonFeedback.setSuccess(ButtonFeedback.currentButton, '✓');
+                if (activeButton) ButtonFeedback.setSuccess(activeButton, '✓');
             }
 
         } catch (error) {
             console.error('视频解析过程中发生错误:', error);
-            if (ButtonFeedback.currentButton) ButtonFeedback.setError(ButtonFeedback.currentButton, '失败');
+            if (activeButton) ButtonFeedback.setError(activeButton, '失败');
         }
     }
 
@@ -1345,25 +1359,28 @@
 
     // 使用统一的MutationObserver监听所有DOM变化
     const observer = new MutationObserver(debounce(function (mutations) {
-        // 1. 清理动态加载内容中的链接
+        let hasAddedElement = false;
+
         mutations.forEach(mutation => {
             mutation.addedNodes.forEach(node => {
                 if (node.nodeType !== 1) return; // 只处理元素节点
-                const linksToClean = [];
-                if (node.matches('a')) {
-                    linksToClean.push(node);
-                }
-                linksToClean.push(...node.querySelectorAll('a'));
+                hasAddedElement = true;
+
+                // 1. 清理动态加载内容中的链接
+                const linksToClean = getElementsBySelector('a', node);
                 if (linksToClean.length > 0) {
                     URLCleaner.cleanLinks(linksToClean);
                 }
+
+                // 2. 只处理新增节点范围内的视频/直播封面
+                addCoverAnalysisButtons(node);
             });
         });
 
-        // 2. 移除可能重新出现的旧按钮
+        if (!hasAddedElement) return;
+
+        // 3. 移除可能重新出现的旧按钮
         removeOldButtons();
-        // 3. 添加封面解析按钮
-        addCoverAnalysisButtons();
     }, DEBOUNCE_DELAY));
 
     observer.observe(document.body, {
