@@ -39,7 +39,7 @@
         'session_id', 'visit_id', 'sourceFrom', 'from_spmid', 'share_source',
         'share_medium', 'share_plat', 'share_session_id', 'share_tag', 'unique_k',
         'csource', 'vd_source', 'tab', 'is_story_h5', 'share_from', 'plat_id',
-        '-Arouter', 'spmid',
+        '-Arouter', 'spmid', 'trackid',
     ]);
 
     // CDN域名常量池
@@ -149,17 +149,40 @@
 
         // 初始化URL清理功能
         init() {
-            let locationBackup;
+            // 保存当前 replaceState 引用：B站会重写 history 方法，用保存的引用写回可避免互相干扰
+            const originalReplaceState = window.history.replaceState;
 
-            // 清理地址栏
+            // 用原始 replaceState 写回清理后的地址
+            const writeCleanHref = (cleanedHref) => {
+                originalReplaceState.call(window.history, window.history.state, "", cleanedHref);
+            };
+
+            // 清理地址栏（只删跟踪参数，保留 p 等功能性参数）
             const cleanLocation = () => {
                 const { href } = location;
-                if (href === locationBackup) return;
-                locationBackup = this.cleanURL(href);
-                window.history.replaceState(window.history.state, "", locationBackup);
+                const cleaned = this.cleanURL(href);
+                if (cleaned !== href) writeCleanHref(cleaned);
+            };
+
+            // B站是 SPA 且重写了 pushState，单纯拦截 history 方法会被框架绕过，
+            // 因此轮询地址栏变化作为兜底清理
+            let lastHref = location.href;
+            const pollLocation = () => {
+                const { href } = location;
+                if (href === lastHref) return;
+                lastHref = href;
+                const cleaned = this.cleanURL(href);
+                if (cleaned !== href) {
+                    writeCleanHref(cleaned);
+                    lastHref = cleaned;
+                }
             };
 
             cleanLocation();
+            window.setInterval(pollLocation, 100);
+
+            // 浏览器前进/后退时清理
+            window.addEventListener("popstate", cleanLocation);
 
             // 监听点击和右键事件
             const clickHandler = (e) => this.handleClick(e);
